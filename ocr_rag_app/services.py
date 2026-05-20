@@ -1,0 +1,2350 @@
+"""Shared services, state, parsing, retrieval, and LLM orchestration.
+共享服务、状态、解析、检索和大模型编排。
+"""
+
+import os
+
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("DISABLE_SAFETENSORS_CONVERSION", "true")
+
+import builtins
+import gc
+import hashlib
+import http.client
+import io
+import json
+import platform
+import re
+import shutil
+import shlex
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import uuid
+import zipfile
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, Callable, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
+
+import fitz
+import streamlit as st
+from docx import Document
+from dotenv import dotenv_values, load_dotenv
+from openai import OpenAI
+from openpyxl import Workbook, load_workbook
+from pptx import Presentation
+from .rag_utils import (
+    keyword_rank_documents,
+    parse_markdown_table,
+    reciprocal_rank_merge,
+    split_semantic_chunks,
+)
+
+# =========================
+# 基础配置
+# =========================
+load_dotenv()
+
+ENV_FILE = ".env"
+APP_DB_FILE = "app_state.sqlite3"
+UPLOAD_DIR = "uploads"
+QDRANT_DIR = "qdrant_db"
+COLLECTION_NAME = "ocr_rag_docs"
+VECTOR_SIZE = 1024
+EMBEDDING_MODEL_NAME = "BAAI/bge-m3"
+RERANKER_MODEL_NAME = "BAAI/bge-reranker-v2-m3"
+EXTRACTED_IMAGE_DIR = os.path.join(UPLOAD_DIR, "extracted_images")
+CONVERTED_DIR = os.path.join(UPLOAD_DIR, "converted")
+DEFAULT_MODEL_CACHE_ROOT = os.path.abspath("model_cache")
+DEFAULT_PADDLEOCR_CACHE_DIR = os.path.join(DEFAULT_MODEL_CACHE_ROOT, "paddlex")
+DEFAULT_BGE_CACHE_DIR = os.path.join(DEFAULT_MODEL_CACHE_ROOT, "bge-m3")
+DEFAULT_RERANKER_CACHE_DIR = os.path.join(DEFAULT_MODEL_CACHE_ROOT, "bge-reranker-v2-m3")
+DEFAULT_SOFFICE_BINARY_PATH = ""
+
+DEFAULT_LLM_BASE_URL = "http://127.0.0.1:27292/v1"
+DEFAULT_LLM_API_KEY = "EMPTY"
+DEFAULT_LLM_MODEL = "local-model"
+DEFAULT_LLM_EXTRA_BODY = "{}"
+DEFAULT_LLM_API_TYPE = "auto"
+LLM_MODE_OPTIONS = {
+    "快速": "fast",
+    "思考": "thinking",
+}
+LLM_API_TYPE_OPTIONS = {
+    "自动识别": "auto",
+    "OpenAI 兼容": "openai",
+    "Anthropic Messages": "anthropic",
+}
+PDF_OCR_MODE_OPTIONS = {
+    "智能 OCR（推荐，低内存）": "smart",
+    "强制每页 OCR（最全但高内存）": "force",
+    "仅提取 PDF 文字（最低内存）": "text",
+}
+PADDLEOCR_MODEL_OPTIONS = {
+    "Server（高精度，占用更高）": {
+        "det": "PP-OCRv5_server_det",
+        "rec": "PP-OCRv5_server_rec",
+    },
+    "Mobile（低内存，速度更快）": {
+        "det": "PP-OCRv5_mobile_det",
+        "rec": "PP-OCRv5_mobile_rec",
+    },
+}
+CHAT_PANEL_HEIGHT = 560
+DEFAULT_CONTEXT_TURNS = 6
+DEFAULT_RAG_TOP_K = 3
+DEFAULT_COMPLIANCE_REGULATION_TOP_K = 6
+DEFAULT_COMPLIANCE_ENTERPRISE_TOP_K = 8
+DEFAULT_COMPLIANCE_MIN_REGULATION_EVIDENCE = 3
+DEFAULT_COMPLIANCE_MIN_ENTERPRISE_EVIDENCE = 3
+DEFAULT_VECTOR_MAX_DISTANCE = 0.85
+DEFAULT_USE_HYBRID_SEARCH = True
+DEFAULT_USE_RERANKER = False
+DEFAULT_RETRIEVAL_FETCH_K = 20
+DEFAULT_QUERY_DECOMPOSE = True
+DEFAULT_BACKGROUND_INGEST = True
+EMBEDDING_BATCH_SIZE = 8
+VECTOR_ADD_BATCH_SIZE = 32
+OCR_PDF_DPI = 120
+OCR_MAX_PAGE_SIDE_PIXELS = 1800
+DEFAULT_PADDLEOCR_MODEL_LABEL = "Server（高精度，占用更高）"
+DEFAULT_UI_LANGUAGE = "en"
+
+MODERN_SUPPORTED_TYPES = [
+    "pdf",
+    "png",
+    "jpg",
+    "jpeg",
+    "webp",
+    "bmp",
+    "docx",
+    "pptx",
+    "xlsx",
+    "txt",
+]
+LEGACY_OFFICE_TYPES = ["doc", "ppt", "xls"]
+SUPPORTED_TYPES = MODERN_SUPPORTED_TYPES + LEGACY_OFFICE_TYPES
+SUPPORTED_TYPE_LABEL = ", ".join(ext.upper() for ext in SUPPORTED_TYPES)
+
+DOC_CATEGORY_OPTIONS = {
+    "监管要求 / 规章制度": "regulation",
+    "企业资料": "enterprise",
+    "其他资料": "general",
+}
+DOC_CATEGORY_NAMES = {value: key for key, value in DOC_CATEGORY_OPTIONS.items()}
+OCR_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
+
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(QDRANT_DIR, exist_ok=True)
+os.makedirs(EXTRACTED_IMAGE_DIR, exist_ok=True)
+os.makedirs(CONVERTED_DIR, exist_ok=True)
+os.makedirs(DEFAULT_MODEL_CACHE_ROOT, exist_ok=True)
+
+# =========================
+# Streamlit 页面
+# =========================
+st.set_page_config(page_title="OCR RAG UI", layout="wide")
+
+st.markdown(
+    """
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    [data-testid="stToolbar"] {visibility: hidden; height: 0; position: fixed;}
+    [data-testid="stDecoration"] {display: none;}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+if "model_events" not in st.session_state:
+    st.session_state["model_events"] = []
+
+
+# =========================
+# 应用状态数据库
+# =========================
+def current_timestamp() -> float:
+    return time.time()
+
+
+class AppDatabase:
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self._local = threading.local()
+        self._initialize_schema()
+
+    def _new_connection(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout = 5000")
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
+
+    def _connection(self) -> sqlite3.Connection:
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = self._new_connection()
+            self._local.conn = conn
+        return conn
+
+    def execute(self, *args, **kwargs):
+        return self._connection().execute(*args, **kwargs)
+
+    def commit(self) -> None:
+        try:
+            self._connection().commit()
+        except sqlite3.DatabaseError as exc:
+            if "no transaction is active" in str(exc).lower():
+                return
+            raise
+
+    def close_current_thread_connection(self) -> None:
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            conn.close()
+            self._local.conn = None
+
+    def _initialize_schema(self) -> None:
+        conn = self._new_connection()
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at REAL NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                id TEXT PRIMARY KEY,
+                session_type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                FOREIGN KEY(session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ingested_files (
+                sha256 TEXT PRIMARY KEY,
+                file_name TEXT NOT NULL,
+                doc_category TEXT NOT NULL,
+                doc_label TEXT NOT NULL,
+                chunk_count INTEGER NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ingest_tasks (
+                id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                total_files INTEGER NOT NULL,
+                processed_files INTEGER NOT NULL,
+                success_count INTEGER NOT NULL,
+                duplicate_count INTEGER NOT NULL,
+                skipped_count INTEGER NOT NULL,
+                failed_count INTEGER NOT NULL,
+                current_file TEXT NOT NULL,
+                message TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ingest_task_items (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                file_name TEXT NOT NULL,
+                status TEXT NOT NULL,
+                message TEXT NOT NULL,
+                chunk_count INTEGER NOT NULL,
+                sha256 TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                FOREIGN KEY(task_id) REFERENCES ingest_tasks(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chat_sessions_type_updated "
+            "ON chat_sessions(session_type, updated_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created "
+            "ON chat_messages(session_id, created_at ASC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ingested_files_updated "
+            "ON ingested_files(updated_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ingest_tasks_updated "
+            "ON ingest_tasks(updated_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ingest_task_items_task "
+            "ON ingest_task_items(task_id, updated_at DESC)"
+        )
+        conn.commit()
+        conn.close()
+
+
+@st.cache_resource
+def load_app_db() -> AppDatabase:
+    return AppDatabase(APP_DB_FILE)
+
+
+app_db = load_app_db()
+APP_DB_LOCK = threading.RLock()
+
+
+def get_config_value(key: str, default: str = "") -> str:
+    with APP_DB_LOCK:
+        row = app_db.execute(
+            "SELECT value FROM app_config WHERE key = ?",
+            (key,),
+        ).fetchone()
+    return str(row["value"]) if row else default
+
+
+def set_config_value(key: str, value: Any) -> None:
+    with APP_DB_LOCK:
+        app_db.execute(
+            """
+            INSERT INTO app_config (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+            """,
+            (key, str(value), current_timestamp()),
+        )
+        app_db.commit()
+
+
+def get_int_config(key: str, default: int) -> int:
+    try:
+        return int(get_config_value(key, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def get_float_config(key: str, default: float) -> float:
+    try:
+        return float(get_config_value(key, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def get_bool_config(key: str, default: bool) -> bool:
+    raw_value = get_config_value(key, "true" if default else "false").lower()
+    return raw_value in {"1", "true", "yes", "on"}
+
+
+def set_bool_config(key: str, value: bool) -> None:
+    set_config_value(key, "true" if value else "false")
+
+
+LANGUAGE_OPTIONS = {
+    "English": "en",
+    "简体中文": "zh_CN",
+    "繁體中文": "zh_TW",
+}
+LANGUAGE_LABEL_BY_CODE = {value: key for key, value in LANGUAGE_OPTIONS.items()}
+
+TRANSLATIONS = {
+    "OCR + BGE-M3 + Qdrant + 本地大模型": {
+        "en": "OCR + BGE-M3 + Qdrant + Local LLM",
+        "zh_TW": "OCR + BGE-M3 + Qdrant + 本地大模型",
+    },
+    "上传制度、监管要求和企业资料，解析后写入 Qdrant 向量库，再调用 OpenAI 兼容接口做问答和合规差距分析。": {
+        "en": "Upload policies, regulatory requirements, and enterprise materials; parse them into Qdrant, then answer questions and analyze compliance through an OpenAI-compatible local LLM endpoint.",
+        "zh_TW": "上傳制度、監管要求和企業資料，解析後寫入 Qdrant 向量庫，再調用 OpenAI 相容接口做問答和合規差距分析。",
+    },
+    "上传入库": {"en": "Ingest", "zh_TW": "上傳入庫"},
+    "检索问答": {"en": "RAG Chat", "zh_TW": "檢索問答"},
+    "合规分析": {"en": "Compliance", "zh_TW": "合規分析"},
+    "配置中心": {"en": "Settings", "zh_TW": "配置中心"},
+    "模型状态": {"en": "Model Status", "zh_TW": "模型狀態"},
+    "文档库管理": {"en": "Library", "zh_TW": "文件庫管理"},
+    "上传文件并写入向量库": {"en": "Upload And Ingest Files", "zh_TW": "上傳文件並寫入向量庫"},
+    "上传方式": {"en": "Upload Mode", "zh_TW": "上傳方式"},
+    "文件 / 多文件": {"en": "File / Multiple Files", "zh_TW": "文件 / 多文件"},
+    "文件夹（含子文件夹）": {"en": "Folder Including Subfolders", "zh_TW": "資料夾（含子資料夾）"},
+    "选择文件夹": {"en": "Choose Folder", "zh_TW": "選擇資料夾"},
+    "选择文件": {"en": "Choose Files", "zh_TW": "選擇文件"},
+    "上传文件或文件夹": {"en": "Upload Files Or Folder", "zh_TW": "上傳文件或資料夾"},
+    "资料类型": {"en": "Document Type", "zh_TW": "資料類型"},
+    "监管要求 / 规章制度": {"en": "Regulations / Policies", "zh_TW": "監管要求 / 規章制度"},
+    "企业资料": {"en": "Enterprise Materials", "zh_TW": "企業資料"},
+    "其他资料": {"en": "Other Materials", "zh_TW": "其他資料"},
+    "资料名称 / 备注": {"en": "Document Name / Note", "zh_TW": "資料名稱 / 備註"},
+    "启用 Office 内嵌图片 OCR": {"en": "Enable OCR For Office Embedded Images", "zh_TW": "啟用 Office 內嵌圖片 OCR"},
+    "入库完成后自动释放 OCR / BGE-M3 模型缓存": {"en": "Release OCR / BGE-M3 Model Cache After Ingestion", "zh_TW": "入庫完成後自動釋放 OCR / BGE-M3 模型快取"},
+    "同名文件变更时替换旧版本": {"en": "Replace Old Version When Same-Name File Changes", "zh_TW": "同名文件變更時替換舊版本"},
+    "后台入库队列": {"en": "Background Ingestion Queue", "zh_TW": "後台入庫隊列"},
+    "将 PPT/PPTX 栅格化后 OCR": {"en": "Rasterize PPT/PPTX Then OCR", "zh_TW": "將 PPT/PPTX 柵格化後 OCR"},
+    "跳过超大 Excel 文件": {"en": "Skip Oversized Excel Files", "zh_TW": "跳過超大 Excel 文件"},
+    "Excel 最大行数": {"en": "Excel Max Rows", "zh_TW": "Excel 最大行數"},
+    "PDF OCR 模式": {"en": "PDF OCR Mode", "zh_TW": "PDF OCR 模式"},
+    "智能 OCR（推荐，低内存）": {"en": "Smart OCR (Recommended, Low Memory)", "zh_TW": "智慧 OCR（推薦，低記憶體）"},
+    "强制每页 OCR（最全但高内存）": {"en": "Force OCR On Every Page (Complete, High Memory)", "zh_TW": "強制每頁 OCR（最完整但高記憶體）"},
+    "仅提取 PDF 文字（最低内存）": {"en": "Extract PDF Text Only (Lowest Memory)", "zh_TW": "僅提取 PDF 文字（最低記憶體）"},
+    "缺少 LibreOffice 时自动下载安装转换工具": {"en": "Auto Install LibreOffice If Missing", "zh_TW": "缺少 LibreOffice 時自動下載安裝轉換工具"},
+    "Chunk 大小": {"en": "Chunk Size", "zh_TW": "Chunk 大小"},
+    "Chunk 重叠": {"en": "Chunk Overlap", "zh_TW": "Chunk 重疊"},
+    "最近入库任务": {"en": "Recent Ingestion Tasks", "zh_TW": "最近入庫任務"},
+    "任务控制": {"en": "Task Controls", "zh_TW": "任務控制"},
+    "任务列表": {"en": "Task List", "zh_TW": "任務列表"},
+    "最近任务文件明细": {"en": "Latest Task File Details", "zh_TW": "最近任務文件明細"},
+    "开始导入文件": {"en": "Start Import", "zh_TW": "開始導入文件"},
+    "暂停": {"en": "Pause", "zh_TW": "暫停"},
+    "继续": {"en": "Resume", "zh_TW": "繼續"},
+    "终止": {"en": "Stop", "zh_TW": "終止"},
+    "清空任务历史": {"en": "Clear Task History", "zh_TW": "清空任務歷史"},
+    "已清空入库任务历史。": {"en": "Ingestion task history cleared.", "zh_TW": "已清空入庫任務歷史。"},
+    "多轮检索问答": {"en": "Multi-Turn RAG Chat", "zh_TW": "多輪檢索問答"},
+    "对话与检索设置": {"en": "Chat And Retrieval Settings", "zh_TW": "對話與檢索設定"},
+    "检索范围": {"en": "Search Scope", "zh_TW": "檢索範圍"},
+    "全部资料": {"en": "All Materials", "zh_TW": "全部資料"},
+    "召回片段数量": {"en": "Top-K Chunks", "zh_TW": "召回片段數量"},
+    "回答模式": {"en": "Answer Mode", "zh_TW": "回答模式"},
+    "快速": {"en": "Fast", "zh_TW": "快速"},
+    "思考": {"en": "Thinking", "zh_TW": "思考"},
+    "上下文轮数": {"en": "Context Turns", "zh_TW": "上下文輪數"},
+    "未检索到资料时使用本地大模型普通聊天": {"en": "Use Local LLM Chat When No Evidence Is Retrieved", "zh_TW": "未檢索到資料時使用本地大模型普通聊天"},
+    "追问补全成完整检索问题": {"en": "Rewrite Follow-Ups Into Complete Search Queries", "zh_TW": "追問補全成完整檢索問題"},
+    "复杂问题拆解后分别检索": {"en": "Decompose Complex Questions Before Search", "zh_TW": "複雜問題拆解後分別檢索"},
+    "启用向量距离阈值过滤": {"en": "Enable Vector Distance Threshold", "zh_TW": "啟用向量距離閾值過濾"},
+    "最大距离": {"en": "Max Distance", "zh_TW": "最大距離"},
+    "启用混合检索": {"en": "Enable Hybrid Search", "zh_TW": "啟用混合檢索"},
+    "启用重排模型": {"en": "Enable Reranker", "zh_TW": "啟用重排模型"},
+    "候选召回数": {"en": "Candidate Count", "zh_TW": "候選召回數"},
+    "清空当前对话": {"en": "Clear Current Chat", "zh_TW": "清空當前對話"},
+    "输入问题": {"en": "Enter Question", "zh_TW": "輸入問題"},
+    "发送": {"en": "Send", "zh_TW": "發送"},
+    "请输入问题。": {"en": "Please enter a question.", "zh_TW": "請輸入問題。"},
+    "多轮合规差距分析": {"en": "Multi-Turn Compliance Gap Analysis", "zh_TW": "多輪合規差距分析"},
+    "分析与检索设置": {"en": "Analysis And Retrieval Settings", "zh_TW": "分析與檢索設定"},
+    "召回监管 / 规章片段数量": {"en": "Regulation Top-K Chunks", "zh_TW": "召回監管 / 規章片段數量"},
+    "召回企业资料片段数量": {"en": "Enterprise Top-K Chunks", "zh_TW": "召回企業資料片段數量"},
+    "分析模式": {"en": "Analysis Mode", "zh_TW": "分析模式"},
+    "监管最少证据数": {"en": "Minimum Regulation Evidence", "zh_TW": "監管最少證據數"},
+    "企业最少证据数": {"en": "Minimum Enterprise Evidence", "zh_TW": "企業最少證據數"},
+    "按监管条款逐条对照": {"en": "Compare Clause By Clause", "zh_TW": "按監管條款逐條對照"},
+    "输出资料不足清单": {"en": "Output Missing Materials List", "zh_TW": "輸出資料不足清單"},
+    "清空合规分析对话": {"en": "Clear Compliance Chat", "zh_TW": "清空合規分析對話"},
+    "输入合规分析问题": {"en": "Enter Compliance Analysis Question", "zh_TW": "輸入合規分析問題"},
+    "请输入分析主题。": {"en": "Please enter an analysis topic.", "zh_TW": "請輸入分析主題。"},
+    "模型与路径": {"en": "Models And Paths", "zh_TW": "模型與路徑"},
+    "本地大模型": {"en": "Local LLM", "zh_TW": "本地大模型"},
+    "初始化": {"en": "Reset", "zh_TW": "初始化"},
+    "OCR 模型": {"en": "OCR Model", "zh_TW": "OCR 模型"},
+    "PaddleOCR 模型": {"en": "PaddleOCR Model", "zh_TW": "PaddleOCR 模型"},
+    "Server（高精度，占用更高）": {"en": "Server (Higher Accuracy, More Memory)", "zh_TW": "Server（高精度，佔用更高）"},
+    "Mobile（低内存，速度更快）": {"en": "Mobile (Lower Memory, Faster)", "zh_TW": "Mobile（低記憶體，速度更快）"},
+    "模型保存路径": {"en": "Model Storage Paths", "zh_TW": "模型保存路徑"},
+    "默认模型根目录": {"en": "Default Model Root", "zh_TW": "預設模型根目錄"},
+    "PaddleOCR 模型目录": {"en": "PaddleOCR Model Directory", "zh_TW": "PaddleOCR 模型目錄"},
+    "BAAI/bge-m3 模型目录": {"en": "BAAI/bge-m3 Model Directory", "zh_TW": "BAAI/bge-m3 模型目錄"},
+    "BAAI/bge-reranker-v2-m3 模型目录": {"en": "BAAI/bge-reranker-v2-m3 Model Directory", "zh_TW": "BAAI/bge-reranker-v2-m3 模型目錄"},
+    "LibreOffice / soffice 路径": {"en": "LibreOffice / soffice Path", "zh_TW": "LibreOffice / soffice 路徑"},
+    "保存模型路径": {"en": "Save Model Paths", "zh_TW": "保存模型路徑"},
+    "恢复默认路径": {"en": "Restore Default Paths", "zh_TW": "恢復預設路徑"},
+    "当前路径": {"en": "Current Paths", "zh_TW": "當前路徑"},
+    "接口": {"en": "Endpoint", "zh_TW": "接口"},
+    "接口类型": {"en": "API Type", "zh_TW": "接口類型"},
+    "自动识别": {"en": "Auto Detect", "zh_TW": "自動識別"},
+    "OpenAI 兼容": {"en": "OpenAI-Compatible", "zh_TW": "OpenAI 相容"},
+    "Anthropic Messages": {"en": "Anthropic Messages", "zh_TW": "Anthropic Messages"},
+    "大模型接口 Base URL": {"en": "LLM Endpoint Base URL", "zh_TW": "大模型接口 Base URL"},
+    "OpenAI 兼容接口 Base URL": {"en": "OpenAI-Compatible Base URL", "zh_TW": "OpenAI 相容接口 Base URL"},
+    "模型名称": {"en": "Model Name", "zh_TW": "模型名稱"},
+    "默认模型名称": {"en": "Default Model Name", "zh_TW": "預設模型名稱"},
+    "模式": {"en": "Modes", "zh_TW": "模式"},
+    "快速模式模型名": {"en": "Fast Mode Model", "zh_TW": "快速模式模型名"},
+    "思考模式模型名": {"en": "Thinking Mode Model", "zh_TW": "思考模式模型名"},
+    "快速模式 extra_body JSON": {"en": "Fast Mode extra_body JSON", "zh_TW": "快速模式 extra_body JSON"},
+    "思考模式 extra_body JSON": {"en": "Thinking Mode extra_body JSON", "zh_TW": "思考模式 extra_body JSON"},
+    "保存配置": {"en": "Save Settings", "zh_TW": "保存配置"},
+    "恢复默认值": {"en": "Restore Defaults", "zh_TW": "恢復預設值"},
+    "测试模式": {"en": "Test Mode", "zh_TW": "測試模式"},
+    "测试当前配置": {"en": "Test Current Settings", "zh_TW": "測試當前配置"},
+    "当前生效配置": {"en": "Active Settings", "zh_TW": "當前生效配置"},
+    "初始化可配置数据": {"en": "Reset Configurable Data", "zh_TW": "初始化可配置資料"},
+    "我确认要初始化可配置数据和历史会话": {"en": "I confirm resetting configurable data and chat history", "zh_TW": "我確認要初始化可配置資料和歷史會話"},
+    "模型状态 / 下载查询": {"en": "Model Status / Download Check", "zh_TW": "模型狀態 / 下載查詢"},
+    "操作": {"en": "Actions", "zh_TW": "操作"},
+    "内存管理": {"en": "Memory Management", "zh_TW": "記憶體管理"},
+    "释放 OCR / BGE-M3 / Reranker 模型缓存": {"en": "Release OCR / BGE-M3 / Reranker Cache", "zh_TW": "釋放 OCR / BGE-M3 / Reranker 模型快取"},
+    "预加载 PaddleOCR": {"en": "Preload PaddleOCR", "zh_TW": "預載 PaddleOCR"},
+    "预加载 BGE-M3": {"en": "Preload BGE-M3", "zh_TW": "預載 BGE-M3"},
+    "预加载 Reranker": {"en": "Preload Reranker", "zh_TW": "預載 Reranker"},
+    "Office 老格式转换": {"en": "Legacy Office Conversion", "zh_TW": "Office 舊格式轉換"},
+    "测试 LibreOffice": {"en": "Test LibreOffice", "zh_TW": "測試 LibreOffice"},
+    "自动安装 LibreOffice": {"en": "Auto Install LibreOffice", "zh_TW": "自動安裝 LibreOffice"},
+    "测试本地大模型": {"en": "Test Local LLM", "zh_TW": "測試本地大模型"},
+    "最近模型事件": {"en": "Recent Model Events", "zh_TW": "最近模型事件"},
+    "文档库管理": {"en": "Document Library", "zh_TW": "文件庫管理"},
+    "刷新文件摘要": {"en": "Refresh File Summary", "zh_TW": "刷新文件摘要"},
+    "查看去重记录": {"en": "View Deduplication Records", "zh_TW": "查看去重記錄"},
+    "向量库备份 / 导入 / 导出": {"en": "Vector Store Backup / Import / Export", "zh_TW": "向量庫備份 / 導入 / 導出"},
+    "导出文档库备份": {"en": "Export Library Backup", "zh_TW": "導出文件庫備份"},
+    "导入备份 ZIP": {"en": "Import Backup ZIP", "zh_TW": "導入備份 ZIP"},
+    "我确认导入备份并覆盖当前文档库": {"en": "I confirm importing backup and overwriting the current library", "zh_TW": "我確認導入備份並覆蓋當前文件庫"},
+    "导入并覆盖当前文档库": {"en": "Import And Overwrite Current Library", "zh_TW": "導入並覆蓋當前文件庫"},
+    "清空 Qdrant 向量库": {"en": "Clear Qdrant Vector Store", "zh_TW": "清空 Qdrant 向量庫"},
+    "总 chunk": {"en": "Total Chunks", "zh_TW": "總 chunk"},
+    "监管/规章": {"en": "Regulations", "zh_TW": "監管/規章"},
+    "新建会话": {"en": "New Chat", "zh_TW": "新建會話"},
+    "删除会话": {"en": "Delete Chat", "zh_TW": "刪除會話"},
+    "本轮检索资料": {"en": "Retrieved Materials", "zh_TW": "本輪檢索資料"},
+    "本轮证据": {"en": "Evidence", "zh_TW": "本輪證據"},
+    "监管 / 规章": {"en": "Regulations / Policies", "zh_TW": "監管 / 規章"},
+    "无监管证据": {"en": "No regulation evidence", "zh_TW": "無監管證據"},
+    "无企业证据": {"en": "No enterprise evidence", "zh_TW": "無企業證據"},
+    "结构化合规分析表": {"en": "Structured Compliance Analysis Table", "zh_TW": "結構化合規分析表"},
+    "导出本轮合规分析 Excel": {"en": "Export This Analysis To Excel", "zh_TW": "導出本輪合規分析 Excel"},
+    "当前 Qdrant Collection：": {"en": "Current Qdrant Collection:", "zh_TW": "當前 Qdrant Collection："},
+    "当前文档库为空。": {"en": "The document library is empty.", "zh_TW": "當前文件庫為空。"},
+    "暂无去重记录。": {"en": "No deduplication records yet.", "zh_TW": "暫無去重記錄。"},
+    "文件": {"en": "File", "zh_TW": "文件"},
+    "文件类型": {"en": "File Type", "zh_TW": "文件類型"},
+    "可处理": {"en": "Processable", "zh_TW": "可處理"},
+    "不支持": {"en": "Unsupported", "zh_TW": "不支援"},
+    "支持": {"en": "Supported", "zh_TW": "支援"},
+    "状态": {"en": "Status", "zh_TW": "狀態"},
+    "进度": {"en": "Progress", "zh_TW": "進度"},
+    "成功": {"en": "Succeeded", "zh_TW": "成功"},
+    "重复": {"en": "Duplicate", "zh_TW": "重複"},
+    "跳过": {"en": "Skipped", "zh_TW": "跳過"},
+    "失败": {"en": "Failed", "zh_TW": "失敗"},
+    "当前文件": {"en": "Current File", "zh_TW": "當前文件"},
+    "说明": {"en": "Message", "zh_TW": "說明"},
+    "更新时间": {"en": "Updated At", "zh_TW": "更新時間"},
+    "原因": {"en": "Reason", "zh_TW": "原因"},
+    "已入库文件": {"en": "Ingested File", "zh_TW": "已入庫文件"},
+    "chunk 数": {"en": "Chunk Count", "zh_TW": "chunk 數"},
+    "来源格式": {"en": "Source Format", "zh_TW": "來源格式"},
+    "资料名称": {"en": "Document Name", "zh_TW": "資料名稱"},
+    "入库时间": {"en": "Ingested At", "zh_TW": "入庫時間"},
+    "组件": {"en": "Component", "zh_TW": "組件"},
+    "用途": {"en": "Purpose", "zh_TW": "用途"},
+    "time": {"en": "Time", "zh_TW": "時間"},
+    "component": {"en": "Component", "zh_TW": "組件"},
+    "status": {"en": "Status", "zh_TW": "狀態"},
+    "detail": {"en": "Detail", "zh_TW": "詳情"},
+    "运行中": {"en": "Running", "zh_TW": "運行中"},
+    "暂停中": {"en": "Pausing", "zh_TW": "暫停中"},
+    "已暂停": {"en": "Paused", "zh_TW": "已暫停"},
+    "终止中": {"en": "Stopping", "zh_TW": "終止中"},
+    "已终止": {"en": "Stopped", "zh_TW": "已終止"},
+    "已完成": {"en": "Completed", "zh_TW": "已完成"},
+    "完成": {"en": "Completed", "zh_TW": "完成"},
+    "未知文件": {"en": "Unknown File", "zh_TW": "未知文件"},
+    "未知类型": {"en": "Unknown Type", "zh_TW": "未知類型"},
+    "未知": {"en": "Unknown", "zh_TW": "未知"},
+    "自动搜索系统路径": {"en": "Auto-detect system path", "zh_TW": "自動搜尋系統路徑"},
+    "未检测到": {"en": "Not detected", "zh_TW": "未檢測到"},
+    "语言设置": {"en": "Language", "zh_TW": "語言設定"},
+    "界面语言": {"en": "UI Language", "zh_TW": "介面語言"},
+    "选择界面语言": {"en": "Choose UI Language", "zh_TW": "選擇介面語言"},
+    "语言设置已保存。": {"en": "Language setting saved.", "zh_TW": "語言設定已保存。"},
+    "语言偏好会保存到 app_state.sqlite3，下次打开会自动生效。": {
+        "en": "Language preference is saved to app_state.sqlite3 and will be applied automatically next time.",
+        "zh_TW": "語言偏好會保存到 app_state.sqlite3，下次打開會自動生效。",
+    },
+    "当前会话": {"en": "Current Chat", "zh_TW": "當前會話"},
+    "输入问题后会保留上下文；每一轮都会按当前检索设置重新召回资料。": {
+        "en": "Context is preserved after you ask a question; each turn retrieves materials using the current retrieval settings.",
+        "zh_TW": "輸入問題後會保留上下文；每一輪都會按當前檢索設定重新召回資料。",
+    },
+    "输入合规分析问题后会保留上下文；每一轮都会分别检索监管资料和企业资料。": {
+        "en": "Context is preserved after you ask a compliance question; each turn retrieves regulation and enterprise materials separately.",
+        "zh_TW": "輸入合規分析問題後會保留上下文；每一輪都會分別檢索監管資料和企業資料。",
+    },
+    "批量上传时留空会使用各自文件名": {
+        "en": "Leave empty to use each file name for batch upload",
+        "zh_TW": "批量上傳時留空會使用各自文件名",
+    },
+    "没有鉴权时可填 EMPTY": {"en": "Use EMPTY if no authentication is required", "zh_TW": "沒有鑑權時可填 EMPTY"},
+    "填写 OLMX / Ollama / LM Studio 中显示的真实模型名": {
+        "en": "Use the actual model name shown by OLMX / Ollama / LM Studio",
+        "zh_TW": "填寫 OLMX / Ollama / LM Studio 中顯示的真實模型名",
+    },
+    "留空则使用默认模型名称": {"en": "Leave empty to use the default model name", "zh_TW": "留空則使用預設模型名稱"},
+    "如果后端用不同模型区分快慢，可在这里填思考模型名": {
+        "en": "If your backend uses a different model for thinking mode, enter it here",
+        "zh_TW": "如果後端用不同模型區分快慢，可在這裡填思考模型名",
+    },
+    "留空则自动搜索系统路径": {"en": "Leave empty to auto-detect system path", "zh_TW": "留空則自動搜尋系統路徑"},
+    "当前检索范围没有任何入库 chunk，请先上传资料。": {
+        "en": "The current search scope has no ingested chunks. Please upload materials first.",
+        "zh_TW": "當前檢索範圍沒有任何入庫 chunk，請先上傳資料。",
+    },
+    "没有检索到满足当前距离阈值的相关内容。可以在检索设置里调大“最大距离”或暂时关闭阈值过滤。": {
+        "en": "No relevant content matched the current distance threshold. Increase Max Distance or temporarily disable threshold filtering in retrieval settings.",
+        "zh_TW": "沒有檢索到滿足當前距離閾值的相關內容。可以在檢索設定裡調大「最大距離」或暫時關閉閾值過濾。",
+    },
+    "没有检索到相关内容。": {"en": "No relevant content was retrieved.", "zh_TW": "沒有檢索到相關內容。"},
+    "请先上传并入库监管要求或规章制度。": {
+        "en": "Please upload and ingest regulations or policy documents first.",
+        "zh_TW": "請先上傳並入庫監管要求或規章制度。",
+    },
+    "请先上传并入库企业资料。": {
+        "en": "Please upload and ingest enterprise materials first.",
+        "zh_TW": "請先上傳並入庫企業資料。",
+    },
+    "没有检索到相关监管要求。": {"en": "No relevant regulation requirements were retrieved.", "zh_TW": "沒有檢索到相關監管要求。"},
+    "没有检索到相关企业资料。": {"en": "No relevant enterprise materials were retrieved.", "zh_TW": "沒有檢索到相關企業資料。"},
+    "本次没有文件成功入库。": {"en": "No files were ingested successfully this time.", "zh_TW": "本次沒有文件成功入庫。"},
+    "当前向量库为空。": {"en": "The current vector store is empty.", "zh_TW": "當前向量庫為空。"},
+    "暂无后台入库任务。": {"en": "No background ingestion tasks yet.", "zh_TW": "暫無後台入庫任務。"},
+    "启用后，XLSX 和 XLS 的工作表最大行号合计超过阈值时会直接跳过，不解析、不切分、不写入向量库。": {
+        "en": "When enabled, XLSX and XLS files are skipped when the combined worksheet max row count exceeds the threshold. They will not be parsed, chunked, or written to the vector store.",
+        "zh_TW": "啟用後，XLSX 和 XLS 的工作表最大行號合計超過閾值時會直接跳過，不解析、不切分、不寫入向量庫。",
+    },
+    "超过该行数的 XLSX/XLS 文件会跳过入库。按所有工作表 max_row 合计计算。": {
+        "en": "XLSX/XLS files above this row count are skipped. The count is the sum of max_row across all worksheets.",
+        "zh_TW": "超過該行數的 XLSX/XLS 文件會跳過入庫。按所有工作表 max_row 合計計算。",
+    },
+    "后台入库任务已提交。可在“最近入库任务”里查看进度，页面可以继续操作。": {
+        "en": "Background ingestion task submitted. You can track progress in Recent Ingestion Tasks and continue using the page.",
+        "zh_TW": "後台入庫任務已提交。可在「最近入庫任務」裡查看進度，頁面可以繼續操作。",
+    },
+    "普通问答建议 3-5，太大会把弱相关片段带进上下文。": {
+        "en": "For general Q&A, 3-5 is recommended. Larger values may add weakly related chunks to the context.",
+        "zh_TW": "普通問答建議 3-5，太大會把弱相關片段帶進上下文。",
+    },
+    "只把最近 N 轮对话放进模型上下文；历史仍会保存在数据库。": {
+        "en": "Only the latest N turns are sent to the model context. Full history is still stored in the database.",
+        "zh_TW": "只把最近 N 輪對話放進模型上下文；歷史仍會保存在資料庫。",
+    },
+    "当向量库无匹配结果时，允许模型按通用对话方式回复；涉及本地文档的问题仍以入库检索结果为准。": {
+        "en": "When the vector store has no matches, allow the model to reply as a general assistant. Questions about local documents should still rely on ingested retrieval results.",
+        "zh_TW": "當向量庫無匹配結果時，允許模型按通用對話方式回覆；涉及本地文件的問題仍以入庫檢索結果為準。",
+    },
+    "多轮对话中把追问补全成完整问题后再检索。": {
+        "en": "In multi-turn chat, complete follow-up questions before retrieval.",
+        "zh_TW": "多輪對話中把追問補全成完整問題後再檢索。",
+    },
+    "问题包含多个事项时，会拆成子问题分别检索后合并证据。": {
+        "en": "When a question contains multiple topics, split it into sub-questions, retrieve separately, then merge evidence.",
+        "zh_TW": "問題包含多個事項時，會拆成子問題分別檢索後合併證據。",
+    },
+    "过滤距离过大的弱相关片段；如果经常召回不到，可调大右侧阈值。": {
+        "en": "Filter weakly related chunks with large distances. If recall is too sparse, increase the threshold on the right.",
+        "zh_TW": "過濾距離過大的弱相關片段；如果經常召回不到，可調大右側閾值。",
+    },
+    "同时使用向量语义检索和关键词检索，适合制度编号、部门名称、文件名等精确命中。": {
+        "en": "Use both vector semantic retrieval and keyword retrieval. Useful for exact hits such as policy numbers, department names, and file names.",
+        "zh_TW": "同時使用向量語義檢索和關鍵詞檢索，適合制度編號、部門名稱、文件名等精確命中。",
+    },
+    "先多召回，再用 BGE reranker 重排；更准但会增加内存和耗时。": {
+        "en": "Retrieve more candidates first, then rerank with the BGE reranker. More accurate, but uses more memory and time.",
+        "zh_TW": "先多召回，再用 BGE reranker 重排；更準但會增加記憶體和耗時。",
+    },
+    "用于混合检索和重排的候选数量。": {
+        "en": "Candidate count used for hybrid retrieval and reranking.",
+        "zh_TW": "用於混合檢索和重排的候選數量。",
+    },
+    "输入问题，点击发送": {"en": "Enter a question, then click Send", "zh_TW": "輸入問題，點擊發送"},
+    "正在生成回答...": {"en": "Generating answer...", "zh_TW": "正在生成回答..."},
+    "只把最近 N 轮合规分析对话放进模型上下文；历史仍会保存在数据库。": {
+        "en": "Only the latest N compliance-analysis turns are sent to the model context. Full history is still stored in the database.",
+        "zh_TW": "只把最近 N 輪合規分析對話放進模型上下文；歷史仍會保存在資料庫。",
+    },
+    "合规多轮分析中把追问补全成完整检索问题。": {
+        "en": "In multi-turn compliance analysis, complete follow-up questions into full retrieval queries.",
+        "zh_TW": "合規多輪分析中把追問補全成完整檢索問題。",
+    },
+    "复杂合规问题会拆成多个子问题分别检索，再合并监管和企业证据。": {
+        "en": "Complex compliance questions are split into sub-questions for separate retrieval, then regulatory and enterprise evidence is merged.",
+        "zh_TW": "複雜合規問題會拆成多個子問題分別檢索，再合併監管和企業證據。",
+    },
+    "分别过滤监管资料和企业资料里的弱相关片段。": {
+        "en": "Filter weakly related chunks separately in regulatory and enterprise materials.",
+        "zh_TW": "分別過濾監管資料和企業資料裡的弱相關片段。",
+    },
+    "同时使用向量语义检索和关键词检索，适合条款号、制度名称、部门名称。": {
+        "en": "Use both vector semantic retrieval and keyword retrieval. Useful for clause numbers, policy names, and department names.",
+        "zh_TW": "同時使用向量語義檢索和關鍵詞檢索，適合條款號、制度名稱、部門名稱。",
+    },
+    "分别对监管资料和企业资料做候选重排；更准但会增加内存和耗时。": {
+        "en": "Rerank regulatory and enterprise candidates separately. More accurate, but uses more memory and time.",
+        "zh_TW": "分別對監管資料和企業資料做候選重排；更準但會增加記憶體和耗時。",
+    },
+    "合规分析会尽量保证监管证据不少于该数量；不足时会放宽距离阈值补齐。": {
+        "en": "Compliance analysis tries to keep at least this many regulatory evidence chunks. If insufficient, the distance threshold is relaxed to supplement evidence.",
+        "zh_TW": "合規分析會盡量保證監管證據不少於該數量；不足時會放寬距離閾值補齊。",
+    },
+    "合规分析会尽量保证企业资料证据不少于该数量；不足时会放宽距离阈值补齐。": {
+        "en": "Compliance analysis tries to keep at least this many enterprise evidence chunks. If insufficient, the distance threshold is relaxed to supplement evidence.",
+        "zh_TW": "合規分析會盡量保證企業資料證據不少於該數量；不足時會放寬距離閾值補齊。",
+    },
+    "适合监管条款较清晰的场景，模型会尽量一条监管要求对应一行分析。": {
+        "en": "Best when regulatory clauses are clear. The model will try to analyze one requirement per row.",
+        "zh_TW": "適合監管條款較清晰的場景，模型會盡量一條監管要求對應一行分析。",
+    },
+    "要求模型列出还需要补充哪些企业资料，并可一起导出 Excel。": {
+        "en": "Ask the model to list which enterprise materials are still needed; the list can be exported to Excel.",
+        "zh_TW": "要求模型列出還需要補充哪些企業資料，並可一起導出 Excel。",
+    },
+    "例如：数据安全管理制度是否满足监管要求？供应商准入流程有什么合规缺口？": {
+        "en": "Example: Does the data security policy meet regulatory requirements? What compliance gaps exist in the supplier onboarding process?",
+        "zh_TW": "例如：資料安全管理制度是否滿足監管要求？供應商准入流程有什麼合規缺口？",
+    },
+    "正在检索并生成合规分析...": {"en": "Retrieving and generating compliance analysis...", "zh_TW": "正在檢索並生成合規分析..."},
+    "正在测试本地大模型接口...": {"en": "Testing local LLM endpoint...", "zh_TW": "正在測試本地大模型接口..."},
+    "正在加载 PaddleOCR...": {"en": "Loading PaddleOCR...", "zh_TW": "正在載入 PaddleOCR..."},
+    "正在加载 BGE-M3...": {"en": "Loading BGE-M3...", "zh_TW": "正在載入 BGE-M3..."},
+    "正在加载 Reranker...": {"en": "Loading Reranker...", "zh_TW": "正在載入 Reranker..."},
+    "正在测试 LibreOffice...": {"en": "Testing LibreOffice...", "zh_TW": "正在測試 LibreOffice..."},
+    "正在自动安装 LibreOffice...": {"en": "Automatically installing LibreOffice...", "zh_TW": "正在自動安裝 LibreOffice..."},
+    "生成备份失败：": {"en": "Failed to generate backup: ", "zh_TW": "生成備份失敗："},
+    "导入备份失败：": {"en": "Failed to import backup: ", "zh_TW": "導入備份失敗："},
+    "清空失败：": {"en": "Clear failed: ", "zh_TW": "清空失敗："},
+    "未单独指定模型路径时，会在该目录下创建各模型缓存目录。": {
+        "en": "When model-specific paths are not set, model cache directories are created under this root.",
+        "zh_TW": "未單獨指定模型路徑時，會在該目錄下建立各模型快取目錄。",
+    },
+    "例如：{\"enable_thinking\": false}": {"en": "Example: {\"enable_thinking\": false}", "zh_TW": "例如：{\"enable_thinking\": false}"},
+    "例如：{\"enable_thinking\": true}": {"en": "Example: {\"enable_thinking\": true}", "zh_TW": "例如：{\"enable_thinking\": true}"},
+}
+
+PHRASE_TRANSLATIONS = {
+    "支持格式：": {"en": "Supported formats: ", "zh_TW": "支援格式："},
+    "文件夹模式会包含子文件夹中的文件。": {
+        "en": "Folder mode includes files in subfolders.",
+        "zh_TW": "資料夾模式會包含子資料夾中的文件。",
+    },
+    "不支持的文件会在批量处理结果中列出。": {
+        "en": "Unsupported files will be listed in the batch results.",
+        "zh_TW": "不支援的文件會在批量處理結果中列出。",
+    },
+    "当前会话共 ": {"en": "Current chat has ", "zh_TW": "當前會話共 "},
+    " 条消息": {"en": " messages", "zh_TW": " 條訊息"},
+    "模式：": {"en": "Mode: ", "zh_TW": "模式："},
+    "本轮检索问题：": {"en": "Search query: ", "zh_TW": "本輪檢索問題："},
+    "拆解子问题：": {"en": "Sub-queries: ", "zh_TW": "拆解子問題："},
+    "问题改写失败，已使用原问题检索：": {
+        "en": "Query rewrite failed; using the original question: ",
+        "zh_TW": "問題改寫失敗，已使用原問題檢索：",
+    },
+    "问题拆解失败，已使用启发式拆解：": {
+        "en": "Query decomposition failed; using heuristic decomposition: ",
+        "zh_TW": "問題拆解失敗，已使用啟發式拆解：",
+    },
+    "资料 ": {"en": "Material ", "zh_TW": "資料 "},
+    "片段 ": {"en": "Chunk ", "zh_TW": "片段 "},
+    "距离 ": {"en": "Distance ", "zh_TW": "距離 "},
+    "来源 ": {"en": "Source ", "zh_TW": "來源 "},
+    "重排 ": {"en": "Rerank ", "zh_TW": "重排 "},
+    "覆盖补充": {"en": "coverage supplement", "zh_TW": "覆蓋補充"},
+    "合并 ": {"en": "Merged ", "zh_TW": "合併 "},
+    "已选择 ": {"en": "Selected ", "zh_TW": "已選擇 "},
+    " 个文件，其中当前可处理 ": {"en": " files; processable now: ", "zh_TW": " 個文件，其中當前可處理 "},
+    " 个，待跳过/不支持 ": {"en": "; to skip/unsupported: ", "zh_TW": " 個，待跳過/不支援 "},
+    " 个。开始处理后会按 SHA256 自动跳过重复文件。": {
+        "en": ". Duplicate files will be skipped automatically by SHA256.",
+        "zh_TW": " 個。開始處理後會按 SHA256 自動跳過重複文件。",
+    },
+    "检测到老版 Office 文件，将使用 LibreOffice 转换：": {
+        "en": "Legacy Office files detected; LibreOffice will convert them: ",
+        "zh_TW": "檢測到舊版 Office 文件，將使用 LibreOffice 轉換：",
+    },
+    "当前 PaddleOCR 模型：": {"en": "Current PaddleOCR model: ", "zh_TW": "當前 PaddleOCR 模型："},
+    "当前系统：": {"en": "Current system: ", "zh_TW": "當前系統："},
+    "安装命令：": {"en": "Install command: ", "zh_TW": "安裝命令："},
+    "正在处理 ": {"en": "Processing ", "zh_TW": "正在處理 "},
+    "正在处理：": {"en": "Processing: ", "zh_TW": "正在處理："},
+    "已跳过：": {"en": "Skipped: ", "zh_TW": "已跳過："},
+    "已完成：": {"en": "Completed: ", "zh_TW": "已完成："},
+    "已跳过重复文件：": {"en": "Skipped duplicate file: ", "zh_TW": "已跳過重複文件："},
+    "已跳过不支持文件：": {"en": "Skipped unsupported file: ", "zh_TW": "已跳過不支援文件："},
+    "已跳过无法转换文件：": {"en": "Skipped unconvertible file: ", "zh_TW": "已跳過無法轉換文件："},
+    "没有解析到有效文字": {"en": "No valid text was extracted", "zh_TW": "沒有解析到有效文字"},
+    "解析成功但没有可入库 chunk": {"en": "Parsed successfully, but no ingestible chunks were produced", "zh_TW": "解析成功但沒有可入庫 chunk"},
+    "入库成功，写入 ": {"en": "Ingested successfully; wrote ", "zh_TW": "入庫成功，寫入 "},
+    " 个 chunk": {"en": " chunks", "zh_TW": " 個 chunk"},
+    "成功入库 ": {"en": "Successfully ingested ", "zh_TW": "成功入庫 "},
+    "不支持 ": {"en": "Unsupported files: ", "zh_TW": "不支援 "},
+    "重复文件 ": {"en": "Duplicate files: ", "zh_TW": "重複文件 "},
+    "跳过 ": {"en": "Skipped files: ", "zh_TW": "跳過 "},
+    "处理失败 ": {"en": "Failed files: ", "zh_TW": "處理失敗 "},
+    " 个文件。": {"en": " files.", "zh_TW": " 個文件。"},
+    "已跳过。": {"en": " skipped.", "zh_TW": "已跳過。"},
+    "接口地址：": {"en": "Endpoint: ", "zh_TW": "接口地址："},
+    "模型名称：": {"en": "Model name: ", "zh_TW": "模型名稱："},
+    "接口可用：": {"en": "Endpoint available: ", "zh_TW": "接口可用："},
+    "本地大模型可用：": {"en": "Local LLM available: ", "zh_TW": "本地大模型可用："},
+    "已删除 ": {"en": "Deleted ", "zh_TW": "已刪除 "},
+    " 个 chunk。": {"en": " chunks.", "zh_TW": " 個 chunk。"},
+}
+
+
+def get_ui_language() -> str:
+    language = get_config_value("ui_language", DEFAULT_UI_LANGUAGE)
+    if language not in LANGUAGE_LABEL_BY_CODE:
+        language = DEFAULT_UI_LANGUAGE
+    return language
+
+
+def translate_text(text: Any) -> Any:
+    if not isinstance(text, str):
+        return text
+    language = get_ui_language()
+    if language == "zh_CN":
+        return text
+    heading_match = re.match(r"^(#{1,6}\s+)(.+)$", text)
+    if heading_match:
+        return heading_match.group(1) + translate_text(heading_match.group(2))
+    translated = TRANSLATIONS.get(text, {}).get(language)
+    if translated:
+        return translated
+    if any("\u4e00" <= char <= "\u9fff" for char in text):
+        translated_text = text
+        for source, targets in sorted(PHRASE_TRANSLATIONS.items(), key=lambda item: len(item[0]), reverse=True):
+            translated_text = translated_text.replace(source, targets.get(language, source))
+        return translated_text
+    return text
+
+
+def localized_text(en: str, zh_cn: str, zh_tw: Optional[str] = None) -> str:
+    language = get_ui_language()
+    if language == "en":
+        return en
+    if language == "zh_TW":
+        return zh_tw or zh_cn
+    return zh_cn
+
+
+def llm_language_name() -> str:
+    return localized_text("English", "简体中文", "繁體中文")
+
+
+def llm_language_instruction() -> str:
+    return localized_text(
+        "Write the final answer in English. Keep quoted source material unchanged.",
+        "请使用简体中文输出最终回答。引用资料原文时保持原文不变。",
+        "請使用繁體中文輸出最終回答。引用資料原文時保持原文不變。",
+    )
+
+
+def source_label(label_key: str) -> str:
+    labels = {
+        "retrieval_materials": ("Retrieved Materials", "检索资料", "檢索資料"),
+        "regulations": ("Regulations / Policies", "监管要求 / 规章制度", "監管要求 / 規章制度"),
+        "enterprise": ("Enterprise Materials", "企业资料", "企業資料"),
+        "material": ("Material", "资料", "資料"),
+        "document_type": ("Document Type", "资料类型", "資料類型"),
+        "source_file": ("Source File", "来源文件", "來源文件"),
+        "chunk_index": ("Chunk Index", "片段编号", "片段編號"),
+        "source_location": ("Source Location", "来源位置", "來源位置"),
+        "content": ("Content", "内容", "內容"),
+        "none": ("None", "无", "無"),
+        "unknown_file": ("Unknown File", "未知文件", "未知文件"),
+        "unknown_chunk": ("Unknown Chunk", "未知片段", "未知片段"),
+        "unknown_type": ("Unknown Type", "未知类型", "未知類型"),
+        "user": ("User", "用户", "使用者"),
+        "assistant": ("Assistant", "助手", "助手"),
+        "page": ("Page", "页码", "頁碼"),
+        "slide": ("Slide", "幻灯片", "投影片"),
+        "sheet": ("Sheet", "工作表", "工作表"),
+        "row": ("Row", "行", "行"),
+        "table": ("Table", "表格", "表格"),
+        "image": ("Image", "图片", "圖片"),
+        "title": ("Title", "标题", "標題"),
+        "embedded_image_ocr": ("Embedded Image OCR", "内嵌图片 OCR", "內嵌圖片 OCR"),
+        "direct_text": ("Direct Text", "直接提取文本", "直接提取文字"),
+        "page_ocr_text": ("Full Page OCR Text", "整页 OCR 文本", "整頁 OCR 文字"),
+        "page_prefix": ("Page", "第", "第"),
+        "page_suffix": ("", "页", "頁"),
+        "slide_page": ("Slide", "页幻灯片", "頁投影片"),
+        "word_table": ("Word Table", "Word 表格", "Word 表格"),
+        "header_row": ("Header Row", "表头行", "表頭行"),
+        "column": ("Column", "列", "欄"),
+        "note": ("Notes", "备注", "備註"),
+        "worksheet": ("Worksheet", "工作表", "工作表"),
+        "same_source_neighbor": ("Adjacent Chunk From Same Source", "同来源相邻片段", "同來源相鄰片段"),
+        "missing_materials": ("Missing Materials", "资料不足清单", "資料不足清單"),
+    }
+    en, zh_cn, zh_tw = labels[label_key]
+    return localized_text(en, zh_cn, zh_tw)
+
+
+def bracketed_label(label_key: str) -> str:
+    return f"[{source_label(label_key)}]"
+
+
+def localize_dataframe_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [translate_table_data(row) for row in rows]
+
+
+def translate_options(options):
+    return [translate_text(option) for option in options]
+
+
+def translate_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    translated = dict(kwargs)
+    for key in ["help", "placeholder", "text", "label"]:
+        if key in translated:
+            translated[key] = translate_text(translated[key])
+    return translated
+
+
+def translate_table_data(data: Any) -> Any:
+    if isinstance(data, str):
+        return translate_text(data)
+    if isinstance(data, list):
+        return [translate_table_data(item) for item in data]
+    if isinstance(data, tuple):
+        return tuple(translate_table_data(item) for item in data)
+    if isinstance(data, dict):
+        return {
+            translate_text(key): translate_table_data(value)
+            for key, value in data.items()
+        }
+    return data
+
+
+def patch_streamlit_i18n() -> None:
+    if getattr(st, "_ocr_rag_i18n_patched", False):
+        return
+
+    st._ocr_rag_originals = {
+        name: getattr(st, name)
+        for name in [
+            "title",
+            "caption",
+            "subheader",
+            "markdown",
+            "button",
+            "checkbox",
+            "radio",
+            "selectbox",
+            "text_input",
+            "text_area",
+            "number_input",
+            "file_uploader",
+            "form_submit_button",
+            "download_button",
+            "info",
+            "warning",
+            "error",
+            "success",
+            "metric",
+            "expander",
+            "tabs",
+            "slider",
+            "status",
+            "spinner",
+            "progress",
+            "dataframe",
+            "table",
+            "json",
+        ]
+    }
+
+    def wrap_label_method(name):
+        original = st._ocr_rag_originals[name]
+
+        def wrapped(label, *args, **kwargs):
+            return original(translate_text(label), *args, **translate_kwargs(kwargs))
+
+        return wrapped
+
+    for method_name in [
+        "title",
+        "caption",
+        "subheader",
+        "markdown",
+        "button",
+        "checkbox",
+        "text_input",
+        "text_area",
+        "number_input",
+        "file_uploader",
+        "form_submit_button",
+        "info",
+        "warning",
+        "error",
+        "success",
+        "metric",
+        "expander",
+        "slider",
+        "spinner",
+    ]:
+        setattr(st, method_name, wrap_label_method(method_name))
+
+    def wrapped_status(label, *args, **kwargs):
+        status_object = st._ocr_rag_originals["status"](translate_text(label), *args, **translate_kwargs(kwargs))
+        original_update = status_object.update
+
+        def translated_update(*update_args, **update_kwargs):
+            if "label" in update_kwargs:
+                update_kwargs["label"] = translate_text(update_kwargs["label"])
+            elif update_args:
+                update_args = (translate_text(update_args[0]), *update_args[1:])
+            return original_update(*update_args, **update_kwargs)
+
+        status_object.update = translated_update
+        return status_object
+
+    def wrapped_progress(value, *args, **kwargs):
+        kwargs = translate_kwargs(kwargs)
+        progress_object = st._ocr_rag_originals["progress"](value, *args, **kwargs)
+        original_progress = progress_object.progress
+
+        def translated_progress(progress_value, *progress_args, **progress_kwargs):
+            progress_kwargs = translate_kwargs(progress_kwargs)
+            return original_progress(progress_value, *progress_args, **progress_kwargs)
+
+        progress_object.progress = translated_progress
+        return progress_object
+
+    def wrapped_download_button(label, *args, **kwargs):
+        return st._ocr_rag_originals["download_button"](translate_text(label), *args, **translate_kwargs(kwargs))
+
+    def wrapped_radio(label, options, *args, **kwargs):
+        kwargs = translate_kwargs(kwargs)
+        existing_format_func = kwargs.get("format_func")
+        if existing_format_func is None:
+            kwargs["format_func"] = lambda option: translate_text(option)
+        else:
+            kwargs["format_func"] = lambda option: translate_text(existing_format_func(option))
+        return st._ocr_rag_originals["radio"](translate_text(label), options, *args, **kwargs)
+
+    def wrapped_selectbox(label, options, *args, **kwargs):
+        kwargs = translate_kwargs(kwargs)
+        existing_format_func = kwargs.get("format_func")
+        if existing_format_func is None:
+            kwargs["format_func"] = lambda option: translate_text(option)
+        else:
+            kwargs["format_func"] = lambda option: translate_text(existing_format_func(option))
+        return st._ocr_rag_originals["selectbox"](translate_text(label), options, *args, **kwargs)
+
+    def wrapped_tabs(tabs, *args, **kwargs):
+        return st._ocr_rag_originals["tabs"](translate_options(tabs), *args, **kwargs)
+
+    def wrapped_dataframe(data=None, *args, **kwargs):
+        return st._ocr_rag_originals["dataframe"](translate_table_data(data), *args, **kwargs)
+
+    def wrapped_table(data=None, *args, **kwargs):
+        return st._ocr_rag_originals["table"](translate_table_data(data), *args, **kwargs)
+
+    def wrapped_json(body, *args, **kwargs):
+        return st._ocr_rag_originals["json"](translate_table_data(body), *args, **kwargs)
+
+    st.download_button = wrapped_download_button
+    st.status = wrapped_status
+    st.progress = wrapped_progress
+    st.radio = wrapped_radio
+    st.selectbox = wrapped_selectbox
+    st.tabs = wrapped_tabs
+    st.dataframe = wrapped_dataframe
+    st.table = wrapped_table
+    st.json = wrapped_json
+    st._ocr_rag_i18n_patched = True
+
+
+if not get_config_value("ui_language", ""):
+    set_config_value("ui_language", DEFAULT_UI_LANGUAGE)
+
+patch_streamlit_i18n()
+
+st.title("OCR + BGE-M3 + Qdrant + 本地大模型")
+st.caption("上传制度、监管要求和企业资料，解析后写入 Qdrant 向量库，再调用 OpenAI 兼容接口做问答和合规差距分析。")
+
+
+def normalize_local_path(path_value: str, default: str = "") -> str:
+    path_value = (path_value or "").strip()
+    if not path_value:
+        path_value = default
+    if not path_value:
+        return ""
+    return os.path.abspath(os.path.expanduser(path_value))
+
+
+def delete_all_config_values() -> None:
+    with APP_DB_LOCK:
+        app_db.execute("DELETE FROM app_config")
+        app_db.commit()
+
+
+def get_ingested_file(file_sha256: str) -> Optional[Dict[str, Any]]:
+    with APP_DB_LOCK:
+        row = app_db.execute(
+            """
+            SELECT sha256, file_name, doc_category, doc_label, chunk_count, created_at, updated_at
+            FROM ingested_files
+            WHERE sha256 = ?
+            """,
+            (file_sha256,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def list_ingested_files_by_name(file_name: str) -> List[Dict[str, Any]]:
+    with APP_DB_LOCK:
+        rows = app_db.execute(
+            """
+            SELECT sha256, file_name, doc_category, doc_label, chunk_count, created_at, updated_at
+            FROM ingested_files
+            WHERE file_name = ?
+            ORDER BY updated_at DESC
+            """,
+            (file_name,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def delete_ingested_file_records_by_name(file_name: str) -> int:
+    with APP_DB_LOCK:
+        cursor = app_db.execute("DELETE FROM ingested_files WHERE file_name = ?", (file_name,))
+        app_db.commit()
+    return cursor.rowcount
+
+
+def record_ingested_file(
+    file_sha256: str,
+    file_name: str,
+    doc_category: str,
+    doc_label: str,
+    chunk_count: int,
+) -> None:
+    now = current_timestamp()
+    with APP_DB_LOCK:
+        app_db.execute(
+            """
+            INSERT INTO ingested_files
+                (sha256, file_name, doc_category, doc_label, chunk_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(sha256) DO UPDATE SET
+                file_name = excluded.file_name,
+                doc_category = excluded.doc_category,
+                doc_label = excluded.doc_label,
+                chunk_count = excluded.chunk_count,
+                updated_at = excluded.updated_at
+            """,
+            (
+                file_sha256,
+                file_name,
+                doc_category,
+                doc_label,
+                chunk_count,
+                now,
+                now,
+            ),
+        )
+        app_db.commit()
+
+
+def list_ingested_files() -> List[Dict[str, Any]]:
+    with APP_DB_LOCK:
+        rows = app_db.execute(
+            """
+            SELECT sha256, file_name, doc_category, doc_label, chunk_count, created_at, updated_at
+            FROM ingested_files
+            ORDER BY updated_at DESC
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def default_session_title(session_type: str) -> str:
+    label = localized_text("RAG Chat", "检索问答", "檢索問答") if session_type == "rag" else localized_text(
+        "Compliance",
+        "合规分析",
+        "合規分析",
+    )
+    prefix = localized_text("New", "新建", "新建")
+    return f"{prefix} {label} {time.strftime('%m-%d %H:%M')}"
+
+
+def create_chat_session(session_type: str, title: Optional[str] = None) -> str:
+    session_id = uuid.uuid4().hex
+    now = current_timestamp()
+    with APP_DB_LOCK:
+        app_db.execute(
+            """
+            INSERT INTO chat_sessions (id, session_type, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (session_id, session_type, title or default_session_title(session_type), now, now),
+        )
+        app_db.commit()
+    return session_id
+
+
+def list_chat_sessions(session_type: str) -> List[Dict[str, Any]]:
+    with APP_DB_LOCK:
+        rows = app_db.execute(
+            """
+            SELECT id, session_type, title, created_at, updated_at
+            FROM chat_sessions
+            WHERE session_type = ?
+            ORDER BY updated_at DESC
+            """,
+            (session_type,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_active_session_id(session_type: str) -> str:
+    state_key = f"active_{session_type}_session_id"
+    sessions = list_chat_sessions(session_type)
+    session_ids = {session["id"] for session in sessions}
+    active_id = st.session_state.get(state_key)
+    if active_id in session_ids:
+        return active_id
+
+    if sessions:
+        active_id = sessions[0]["id"]
+    else:
+        active_id = create_chat_session(session_type)
+
+    st.session_state[state_key] = active_id
+    return active_id
+
+
+def set_active_session_id(session_type: str, session_id: str) -> None:
+    st.session_state[f"active_{session_type}_session_id"] = session_id
+
+
+def delete_chat_session(session_id: str) -> None:
+    with APP_DB_LOCK:
+        app_db.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
+        app_db.commit()
+
+
+def clear_chat_session(session_id: str) -> None:
+    now = current_timestamp()
+    with APP_DB_LOCK:
+        app_db.execute("DELETE FROM chat_messages WHERE session_id = ?", (session_id,))
+        app_db.execute(
+            "UPDATE chat_sessions SET updated_at = ? WHERE id = ?",
+            (now, session_id),
+        )
+        app_db.commit()
+
+
+def get_chat_messages(session_id: str) -> List[Dict[str, Any]]:
+    with APP_DB_LOCK:
+        rows = app_db.execute(
+            """
+            SELECT role, content, payload, created_at
+            FROM chat_messages
+            WHERE session_id = ?
+            ORDER BY created_at ASC
+            """,
+            (session_id,),
+        ).fetchall()
+    messages = []
+    for row in rows:
+        try:
+            payload = json.loads(row["payload"]) if row["payload"] else {}
+        except json.JSONDecodeError:
+            payload = {}
+        messages.append(
+            {
+                "role": row["role"],
+                "content": row["content"],
+                **payload,
+            }
+        )
+    return messages
+
+
+def append_chat_message(
+    session_id: str,
+    role: str,
+    content: str,
+    payload: Optional[Dict[str, Any]] = None,
+) -> None:
+    now = current_timestamp()
+    with APP_DB_LOCK:
+        app_db.execute(
+            """
+            INSERT INTO chat_messages (id, session_id, role, content, payload, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                uuid.uuid4().hex,
+                session_id,
+                role,
+                content,
+                json.dumps(payload or {}, ensure_ascii=False, default=str),
+                now,
+            ),
+        )
+        app_db.execute(
+            "UPDATE chat_sessions SET updated_at = ? WHERE id = ?",
+            (now, session_id),
+        )
+        app_db.commit()
+
+
+def maybe_update_session_title(session_id: str, first_user_message: str) -> None:
+    with APP_DB_LOCK:
+        row = app_db.execute(
+            "SELECT title FROM chat_sessions WHERE id = ?",
+            (session_id,),
+        ).fetchone()
+    if not row:
+        return
+
+    title = str(row["title"])
+    if not title.startswith("新建"):
+        return
+
+    new_title = first_user_message.strip().replace("\n", " ")[:32]
+    if not new_title:
+        return
+
+    with APP_DB_LOCK:
+        app_db.execute(
+            "UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ?",
+            (new_title, current_timestamp(), session_id),
+        )
+        app_db.commit()
+
+
+def delete_all_chat_sessions() -> None:
+    with APP_DB_LOCK:
+        app_db.execute("DELETE FROM chat_messages")
+        app_db.execute("DELETE FROM chat_sessions")
+        app_db.commit()
+
+
+def delete_all_ingested_file_records() -> None:
+    with APP_DB_LOCK:
+        app_db.execute("DELETE FROM ingested_files")
+        app_db.commit()
+
+
+def create_ingest_task(total_files: int) -> str:
+    task_id = uuid.uuid4().hex
+    now = current_timestamp()
+    with APP_DB_LOCK:
+        app_db.execute(
+            """
+            INSERT INTO ingest_tasks (
+                id, status, total_files, processed_files, success_count, duplicate_count,
+                skipped_count, failed_count, current_file, message, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                task_id,
+                "running",
+                total_files,
+                0,
+                0,
+                0,
+                0,
+                0,
+                "",
+                localized_text("Preparing files", "准备处理文件", "準備處理文件"),
+                now,
+                now,
+            ),
+        )
+        app_db.commit()
+    return task_id
+
+
+def update_ingest_task(task_id: str, **kwargs: Any) -> None:
+    if not kwargs:
+        return
+    kwargs["updated_at"] = current_timestamp()
+    assignments = ", ".join(f"{key} = ?" for key in kwargs)
+    values = list(kwargs.values())
+    values.append(task_id)
+    with APP_DB_LOCK:
+        app_db.execute(
+            f"UPDATE ingest_tasks SET {assignments} WHERE id = ?",
+            values,
+        )
+        app_db.commit()
+
+
+def record_ingest_task_item(
+    task_id: str,
+    file_name: str,
+    status: str,
+    message: str,
+    chunk_count: int = 0,
+    file_sha256: str = "",
+) -> None:
+    now = current_timestamp()
+    with APP_DB_LOCK:
+        app_db.execute(
+            """
+            INSERT INTO ingest_task_items (
+                id, task_id, file_name, status, message, chunk_count, sha256, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                uuid.uuid4().hex,
+                task_id,
+                file_name,
+                status,
+                message,
+                int(chunk_count or 0),
+                file_sha256 or "",
+                now,
+                now,
+            ),
+        )
+        app_db.commit()
+
+
+def list_ingest_tasks(limit: int = 10) -> List[Dict[str, Any]]:
+    with APP_DB_LOCK:
+        rows = app_db.execute(
+            """
+            SELECT id, status, total_files, processed_files, success_count, duplicate_count,
+                   skipped_count, failed_count, current_file, message, created_at, updated_at
+            FROM ingest_tasks
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def has_active_ingest_task(limit: int = 5) -> bool:
+    return any(
+        task["status"] in {"running", "pause_requested", "paused", "cancel_requested"}
+        for task in list_ingest_tasks(limit=limit)
+    )
+
+
+def delete_all_ingest_tasks() -> None:
+    with APP_DB_LOCK:
+        app_db.execute("DELETE FROM ingest_task_items")
+        app_db.execute("DELETE FROM ingest_tasks")
+        app_db.commit()
+
+
+def get_ingest_task(task_id: str) -> Optional[Dict[str, Any]]:
+    with APP_DB_LOCK:
+        row = app_db.execute(
+            """
+            SELECT id, status, total_files, processed_files, success_count, duplicate_count,
+                   skipped_count, failed_count, current_file, message, created_at, updated_at
+            FROM ingest_tasks
+            WHERE id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def request_pause_ingest_task(task_id: str) -> None:
+    update_ingest_task(
+        task_id,
+        status="pause_requested",
+        message=localized_text(
+            "Pause requested. The task will pause after the current file reaches a safe point.",
+            "已请求暂停，当前文件处理到安全点后暂停",
+            "已請求暫停，當前文件處理到安全點後暫停",
+        ),
+    )
+
+
+def resume_ingest_task(task_id: str) -> None:
+    update_ingest_task(task_id, status="running", message=localized_text("Background ingestion resumed", "已继续后台入库任务", "已繼續後台入庫任務"))
+
+
+def request_cancel_ingest_task(task_id: str) -> None:
+    update_ingest_task(
+        task_id,
+        status="cancel_requested",
+        message=localized_text(
+            "Stop requested. The task will stop after the current step finishes.",
+            "已请求终止，当前步骤结束后停止",
+            "已請求終止，當前步驟結束後停止",
+        ),
+    )
+
+
+class IngestTaskCancelled(RuntimeError):
+    pass
+
+
+def wait_if_task_paused_or_cancelled(task_id: str) -> None:
+    while True:
+        task = get_ingest_task(task_id)
+        status = task.get("status") if task else ""
+        if status == "cancel_requested":
+            message = localized_text("Ingestion task stopped", "入库任务已终止", "入庫任務已終止")
+            update_ingest_task(task_id, status="cancelled", message=message)
+            raise IngestTaskCancelled(message)
+        if status in {"pause_requested", "paused"}:
+            if status == "pause_requested":
+                update_ingest_task(task_id, status="paused", message=localized_text("Ingestion task paused", "入库任务已暂停", "入庫任務已暫停"))
+            time.sleep(1)
+            continue
+        return
+
+
+def list_ingest_task_items(task_id: str, limit: int = 200) -> List[Dict[str, Any]]:
+    with APP_DB_LOCK:
+        rows = app_db.execute(
+            """
+            SELECT file_name, status, message, chunk_count, sha256, created_at, updated_at
+            FROM ingest_task_items
+            WHERE task_id = ?
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (task_id, limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def reset_app_state_database() -> None:
+    delete_all_config_values()
+    delete_all_chat_sessions()
+    set_config_value("ui_language", DEFAULT_UI_LANGUAGE)
+    save_llm_config(
+        DEFAULT_LLM_BASE_URL,
+        DEFAULT_LLM_API_KEY,
+        DEFAULT_LLM_MODEL,
+        api_type=DEFAULT_LLM_API_TYPE,
+        fast_model=DEFAULT_LLM_MODEL,
+        thinking_model=DEFAULT_LLM_MODEL,
+        fast_extra_body=DEFAULT_LLM_EXTRA_BODY,
+        thinking_extra_body=DEFAULT_LLM_EXTRA_BODY,
+    )
+    set_config_value("rag_context_turns", DEFAULT_CONTEXT_TURNS)
+    set_config_value("compliance_context_turns", DEFAULT_CONTEXT_TURNS)
+    set_config_value("rag_top_k", DEFAULT_RAG_TOP_K)
+    set_bool_config("rag_query_rewrite", True)
+    set_bool_config("rag_query_decompose", DEFAULT_QUERY_DECOMPOSE)
+    set_bool_config("rag_use_distance_threshold", True)
+    set_config_value("rag_max_distance", DEFAULT_VECTOR_MAX_DISTANCE)
+    set_bool_config("rag_use_hybrid", DEFAULT_USE_HYBRID_SEARCH)
+    set_bool_config("rag_use_reranker", DEFAULT_USE_RERANKER)
+    set_config_value("rag_fetch_k", DEFAULT_RETRIEVAL_FETCH_K)
+    set_config_value("compliance_regulation_top_k", DEFAULT_COMPLIANCE_REGULATION_TOP_K)
+    set_config_value("compliance_enterprise_top_k", DEFAULT_COMPLIANCE_ENTERPRISE_TOP_K)
+    set_bool_config("compliance_query_rewrite", True)
+    set_bool_config("compliance_query_decompose", DEFAULT_QUERY_DECOMPOSE)
+    set_config_value("compliance_min_regulation_evidence", DEFAULT_COMPLIANCE_MIN_REGULATION_EVIDENCE)
+    set_config_value("compliance_min_enterprise_evidence", DEFAULT_COMPLIANCE_MIN_ENTERPRISE_EVIDENCE)
+    set_bool_config("compliance_clause_by_clause", False)
+    set_bool_config("compliance_include_missing_list", True)
+    set_bool_config("compliance_use_distance_threshold", True)
+    set_config_value("compliance_max_distance", DEFAULT_VECTOR_MAX_DISTANCE)
+    set_bool_config("compliance_use_hybrid", DEFAULT_USE_HYBRID_SEARCH)
+    set_bool_config("compliance_use_reranker", DEFAULT_USE_RERANKER)
+    set_config_value("compliance_fetch_k", DEFAULT_RETRIEVAL_FETCH_K)
+    set_config_value("model_cache_root", DEFAULT_MODEL_CACHE_ROOT)
+    set_config_value("paddleocr_cache_dir", "")
+    set_config_value("bge_cache_dir", "")
+    set_config_value("reranker_cache_dir", "")
+    set_config_value("soffice_binary_path", DEFAULT_SOFFICE_BINARY_PATH)
+    set_bool_config("replace_changed_same_name", True)
+    set_bool_config("background_ingest", DEFAULT_BACKGROUND_INGEST)
+    set_bool_config("ppt_visual_ocr", True)
+    set_bool_config("skip_large_excel", False)
+    set_config_value("excel_row_limit", 100000)
+    apply_model_cache_environment()
+    for key in [
+        "llm_config",
+        "active_rag_session_id",
+        "active_compliance_session_id",
+        "upload_mode_label",
+        "upload_doc_category_label",
+        "upload_ocr_enhance",
+        "upload_ppt_visual_ocr",
+        "auto_unload_models_after_ingest",
+        "replace_changed_same_name_input",
+        "background_ingest_input",
+        "skip_large_excel_input",
+        "excel_row_limit_input",
+        "upload_pdf_ocr_mode_label",
+        "paddleocr_model_label",
+        "auto_install_libreoffice",
+        "upload_chunk_size",
+        "upload_overlap",
+        "rag_session_select",
+        "compliance_session_select",
+        "rag_search_scope_label",
+        "search_top_k",
+        "chat_llm_mode_label",
+        "rag_allow_general_fallback_input",
+        "rag_query_rewrite_input",
+        "rag_query_decompose_input",
+        "rag_use_distance_threshold_input",
+        "rag_max_distance_input",
+        "rag_use_hybrid_input",
+        "rag_use_reranker_input",
+        "rag_fetch_k_input",
+        "rag_context_turns_input",
+        "regulation_top_k",
+        "enterprise_top_k",
+        "compliance_query_rewrite_input",
+        "compliance_query_decompose_input",
+        "compliance_min_regulation_evidence_input",
+        "compliance_min_enterprise_evidence_input",
+        "compliance_clause_by_clause_input",
+        "compliance_include_missing_list_input",
+        "compliance_use_distance_threshold_input",
+        "compliance_max_distance_input",
+        "compliance_use_hybrid_input",
+        "compliance_use_reranker_input",
+        "compliance_fetch_k_input",
+        "compliance_llm_mode_label",
+        "compliance_context_turns_input",
+        "config_test_llm_mode_label",
+        "llm_api_type_label",
+        "config_paddleocr_model_label",
+        "model_cache_root_input",
+        "paddleocr_cache_dir_input",
+        "bge_cache_dir_input",
+        "reranker_cache_dir_input",
+        "soffice_binary_path_input",
+        "ui_language_selector",
+        "model_status_test_llm_mode_label",
+    ]:
+        st.session_state.pop(key, None)
+
+
+def get_model_cache_root() -> str:
+    return normalize_local_path(get_config_value("model_cache_root", DEFAULT_MODEL_CACHE_ROOT), DEFAULT_MODEL_CACHE_ROOT)
+
+
+def get_paddleocr_cache_dir() -> str:
+    default_path = os.path.join(get_model_cache_root(), "paddlex")
+    return normalize_local_path(get_config_value("paddleocr_cache_dir", ""), default_path)
+
+
+def get_bge_cache_dir() -> str:
+    default_path = os.path.join(get_model_cache_root(), "bge-m3")
+    return normalize_local_path(get_config_value("bge_cache_dir", ""), default_path)
+
+
+def get_reranker_cache_dir() -> str:
+    default_path = os.path.join(get_model_cache_root(), "bge-reranker-v2-m3")
+    return normalize_local_path(get_config_value("reranker_cache_dir", ""), default_path)
+
+
+def get_configured_soffice_path() -> str:
+    return normalize_local_path(get_config_value("soffice_binary_path", DEFAULT_SOFFICE_BINARY_PATH), "")
+
+
+def ensure_model_cache_dirs() -> None:
+    for path in [
+        get_model_cache_root(),
+        get_paddleocr_cache_dir(),
+        get_bge_cache_dir(),
+        get_reranker_cache_dir(),
+    ]:
+        if path:
+            os.makedirs(path, exist_ok=True)
+
+
+def refresh_paddlex_cache_runtime() -> None:
+    cache_module = sys.modules.get("paddlex.utils.cache")
+    if not cache_module:
+        return
+
+    cache_dir = get_paddleocr_cache_dir()
+    cache_module.CACHE_DIR = cache_dir
+    cache_module.FUNC_CACHE_DIR = os.path.join(cache_dir, "func_ret")
+    cache_module.FILE_LOCK_DIR = os.path.join(cache_dir, "locks")
+    cache_module.TEMP_DIR = os.path.join(cache_dir, "temp")
+    for path in [
+        cache_module.CACHE_DIR,
+        cache_module.FUNC_CACHE_DIR,
+        cache_module.FILE_LOCK_DIR,
+        cache_module.TEMP_DIR,
+    ]:
+        os.makedirs(path, exist_ok=True)
+
+
+def apply_model_cache_environment() -> None:
+    ensure_model_cache_dirs()
+    os.environ["PADDLE_PDX_CACHE_HOME"] = get_paddleocr_cache_dir()
+    os.environ["HF_HOME"] = os.path.join(get_model_cache_root(), "huggingface")
+    os.environ["SENTENCE_TRANSFORMERS_HOME"] = get_model_cache_root()
+    refresh_paddlex_cache_runtime()
+
+
+def save_model_cache_config(
+    model_cache_root: str,
+    paddleocr_cache_dir: str,
+    bge_cache_dir: str,
+    reranker_cache_dir: str,
+    soffice_binary_path: str,
+) -> None:
+    model_cache_root = normalize_local_path(model_cache_root, DEFAULT_MODEL_CACHE_ROOT)
+    paddleocr_cache_dir = normalize_local_path(paddleocr_cache_dir, "") if paddleocr_cache_dir.strip() else ""
+    bge_cache_dir = normalize_local_path(bge_cache_dir, "") if bge_cache_dir.strip() else ""
+    reranker_cache_dir = normalize_local_path(reranker_cache_dir, "") if reranker_cache_dir.strip() else ""
+    soffice_binary_path = normalize_local_path(soffice_binary_path, "")
+
+    set_config_value("model_cache_root", model_cache_root)
+    set_config_value("paddleocr_cache_dir", paddleocr_cache_dir)
+    set_config_value("bge_cache_dir", bge_cache_dir)
+    set_config_value("reranker_cache_dir", reranker_cache_dir)
+    set_config_value("soffice_binary_path", soffice_binary_path)
+    apply_model_cache_environment()
+    try:
+        load_ocr_model.clear()
+        load_embedding_model.clear()
+        load_reranker_model.clear()
+    except Exception:
+        pass
+    release_memory_after_file()
+
+
+apply_model_cache_environment()
+
+
+def get_paddleocr_model_label() -> str:
+    label = get_config_value("paddleocr_model_label", DEFAULT_PADDLEOCR_MODEL_LABEL)
+    if label not in PADDLEOCR_MODEL_OPTIONS:
+        return DEFAULT_PADDLEOCR_MODEL_LABEL
+    return label
+
+
+def get_paddleocr_model_config() -> Dict[str, str]:
+    return PADDLEOCR_MODEL_OPTIONS[get_paddleocr_model_label()]
+
+
+def save_paddleocr_model_label(label: str) -> None:
+    if label not in PADDLEOCR_MODEL_OPTIONS:
+        raise ValueError(localized_text("Unknown PaddleOCR model setting", "未知 PaddleOCR 模型配置", "未知 PaddleOCR 模型配置"))
+    old_label = get_paddleocr_model_label()
+    set_config_value("paddleocr_model_label", label)
+    if old_label != label:
+        try:
+            load_ocr_model.clear()
+        except Exception:
+            pass
+        release_memory_after_file()
+
+
+def is_bge_model_cached() -> bool:
+    try:
+        if os.path.exists(os.path.join(get_bge_cache_dir(), "modules.json")):
+            return True
+        from huggingface_hub import try_to_load_from_cache
+
+        cached_path = try_to_load_from_cache(
+            EMBEDDING_MODEL_NAME,
+            "modules.json",
+            cache_dir=get_bge_cache_dir(),
+        )
+        return isinstance(cached_path, str) and os.path.exists(cached_path)
+    except Exception:
+        return False
+
+
+def is_reranker_model_cached() -> bool:
+    try:
+        if os.path.exists(os.path.join(get_reranker_cache_dir(), "config.json")):
+            return True
+        from huggingface_hub import try_to_load_from_cache
+
+        cached_path = try_to_load_from_cache(
+            RERANKER_MODEL_NAME,
+            "config.json",
+            cache_dir=get_reranker_cache_dir(),
+        )
+        return isinstance(cached_path, str) and os.path.exists(cached_path)
+    except Exception:
+        return False
+
+
+# =========================
+# 加载模型和数据库
+# =========================
+@st.cache_resource
+def load_ocr_model():
+    """
+    PaddleOCR 中文模型。
+    use_textline_orientation=True 用于处理文字方向。
+    lang='ch' 适合中文，也能识别一部分英文。
+    """
+    os.environ["PADDLE_PDX_CACHE_HOME"] = get_paddleocr_cache_dir()
+    from paddleocr import PaddleOCR
+
+    ocr_config = get_paddleocr_model_config()
+    return PaddleOCR(
+        use_doc_orientation_classify=False,
+        use_doc_unwarping=False,
+        use_textline_orientation=True,
+        text_detection_model_name=ocr_config["det"],
+        text_recognition_model_name=ocr_config["rec"],
+        text_recognition_batch_size=4,
+        text_det_limit_side_len=960,
+        lang="ch",
+    )
+
+
+@st.cache_resource
+def load_embedding_model():
+    """
+    BAAI/bge-m3 embedding 模型。
+    第一次运行会下载模型，速度取决于网络。
+    """
+    from sentence_transformers import SentenceTransformer
+
+    model_source = get_bge_cache_dir() if os.path.exists(os.path.join(get_bge_cache_dir(), "modules.json")) else EMBEDDING_MODEL_NAME
+    return SentenceTransformer(
+        model_source,
+        cache_folder=get_bge_cache_dir(),
+        local_files_only=is_bge_model_cached(),
+    )
+
+
+@st.cache_resource
+def load_reranker_model():
+    from sentence_transformers import CrossEncoder
+
+    model_source = get_reranker_cache_dir() if os.path.exists(os.path.join(get_reranker_cache_dir(), "config.json")) else RERANKER_MODEL_NAME
+    return CrossEncoder(
+        model_source,
+        max_length=512,
+        cache_folder=get_reranker_cache_dir(),
+        local_files_only=is_reranker_model_cached(),
+    )
+
+
+def import_qdrant_models():
+    from qdrant_client import models
+
+    return models
+
+
+def build_qdrant_filter(where: Optional[Dict[str, Any]] = None):
+    if not where:
+        return None
+    models = import_qdrant_models()
+    return models.Filter(
+        must=[
+            models.FieldCondition(
+                key=key,
+                match=models.MatchValue(value=value),
+            )
+            for key, value in where.items()
+        ]
+    )
+
+
+def ensure_qdrant_collection(client) -> None:
+    models = import_qdrant_models()
+    collection_exists = False
+    try:
+        collection_exists = client.collection_exists(COLLECTION_NAME)
+    except Exception:
+        try:
+            client.get_collection(COLLECTION_NAME)
+            collection_exists = True
+        except Exception:
+            collection_exists = False
+
+    if not collection_exists:
+        client.create_collection(
+            collection_name=COLLECTION_NAME,
+            vectors_config=models.VectorParams(size=VECTOR_SIZE, distance=models.Distance.COSINE),
+        )
+
+
+class LockedQdrantClient:
+    def __init__(self, client: Any, lock: threading.RLock):
+        self._client = client
+        self._lock = lock
+
+    def __getattr__(self, name: str) -> Any:
+        value = getattr(self._client, name)
+        if not callable(value):
+            return value
+
+        def locked_call(*args, **kwargs):
+            with self._lock:
+                return value(*args, **kwargs)
+
+        return locked_call
+
+    def close(self) -> None:
+        with self._lock:
+            if hasattr(self._client, "close"):
+                self._client.close()
+
+
+def get_qdrant_singleton_state() -> Dict[str, Any]:
+    state = getattr(builtins, "_ocr_rag_qdrant_state", None)
+    if not state:
+        state = {
+            "client": None,
+            "proxy": None,
+            "path": "",
+            "lock": threading.RLock(),
+        }
+        setattr(builtins, "_ocr_rag_qdrant_state", state)
+    return state
+
+
+def close_qdrant_singleton() -> None:
+    state = get_qdrant_singleton_state()
+    with state["lock"]:
+        client = state.get("client")
+        if client is not None and hasattr(client, "close"):
+            try:
+                client.close()
+            except Exception:
+                pass
+        state["client"] = None
+        state["proxy"] = None
+        state["path"] = ""
+
+
+def close_stale_qdrant_clients(qdrant_path: str) -> int:
+    closed_count = 0
+    for obj in gc.get_objects():
+        try:
+            if type(obj).__name__ != "QdrantClient":
+                continue
+            local_client = getattr(obj, "_client", None)
+            location = getattr(local_client, "location", "")
+            if location and os.path.abspath(str(location)) != qdrant_path:
+                continue
+            if hasattr(obj, "close"):
+                obj.close()
+                closed_count += 1
+        except Exception:
+            continue
+    if closed_count:
+        gc.collect()
+    return closed_count
+
+
+def recreate_qdrant_collection() -> None:
+    try:
+        vector_client.delete_collection(COLLECTION_NAME)
+    except Exception:
+        pass
+    ensure_qdrant_collection(vector_client)
+
+
+@st.cache_resource
+def load_qdrant_client():
+    from qdrant_client import QdrantClient
+
+    state = get_qdrant_singleton_state()
+    qdrant_path = os.path.abspath(QDRANT_DIR)
+    with state["lock"]:
+        if state.get("client") is not None and state.get("path") == qdrant_path:
+            ensure_qdrant_collection(state["proxy"])
+            return state["proxy"]
+
+        if state.get("client") is not None:
+            try:
+                if hasattr(state["client"], "close"):
+                    state["client"].close()
+            except Exception:
+                pass
+            state["client"] = None
+            state["proxy"] = None
+            state["path"] = ""
+
+        try:
+            raw_client = QdrantClient(path=qdrant_path)
+        except RuntimeError as e:
+            if "already accessed by another instance of Qdrant client" in str(e):
+                if close_stale_qdrant_clients(qdrant_path):
+                    try:
+                        raw_client = QdrantClient(path=qdrant_path)
+                    except RuntimeError as retry_error:
+                        raise RuntimeError(
+                            localized_text(
+                                "The local Qdrant store qdrant_db is already used by another client. This usually means another Streamlit service is open or an old process has not exited. Press Ctrl+C in the terminal that started Streamlit, make sure only one service remains, then restart. If you need multi-process concurrent access, use Qdrant server.",
+                                "Qdrant 本地库 qdrant_db 正在被另一个客户端占用。通常是已经打开了另一个 Streamlit 服务或旧进程还没退出。请先在启动 Streamlit 的终端按 Ctrl+C 停掉旧服务，确认只保留一个服务后再启动；如果确实需要多进程并发访问，请改用 Qdrant server。",
+                                "Qdrant 本地庫 qdrant_db 正在被另一個客戶端佔用。通常是已經打開了另一個 Streamlit 服務或舊進程還沒退出。請先在啟動 Streamlit 的終端按 Ctrl+C 停掉舊服務，確認只保留一個服務後再啟動；如果確實需要多進程並發訪問，請改用 Qdrant server。",
+                            )
+                        ) from retry_error
+                else:
+                    raise RuntimeError(
+                        localized_text(
+                            "The local Qdrant store qdrant_db is already used by another client. This usually means another Streamlit service is open or an old process has not exited. Press Ctrl+C in the terminal that started Streamlit, make sure only one service remains, then restart. If you need multi-process concurrent access, use Qdrant server.",
+                            "Qdrant 本地库 qdrant_db 正在被另一个客户端占用。通常是已经打开了另一个 Streamlit 服务或旧进程还没退出。请先在启动 Streamlit 的终端按 Ctrl+C 停掉旧服务，确认只保留一个服务后再启动；如果确实需要多进程并发访问，请改用 Qdrant server。",
+                            "Qdrant 本地庫 qdrant_db 正在被另一個客戶端佔用。通常是已經打開了另一個 Streamlit 服務或舊進程還沒退出。請先在啟動 Streamlit 的終端按 Ctrl+C 停掉舊服務，確認只保留一個服務後再啟動；如果確實需要多進程並發訪問，請改用 Qdrant server。",
+                        )
+                    ) from e
+            raise
+
+        proxy = LockedQdrantClient(raw_client, state["lock"])
+        state["client"] = raw_client
+        state["proxy"] = proxy
+        state["path"] = qdrant_path
+        ensure_qdrant_collection(proxy)
+        return proxy
+
+
+@st.cache_resource
+def load_llm_client(base_url: str, api_key: str):
+    return OpenAI(base_url=base_url, api_key=api_key, timeout=60)
+
+
+vector_client = load_qdrant_client()
+
+
+@st.cache_resource
+def load_ingest_executor():
+    return {
+        "executor": ThreadPoolExecutor(max_workers=1, thread_name_prefix="ocr-rag-ingest"),
+        "futures": {},
+    }
+
+
+def qdrant_scroll_points(
+    where: Optional[Dict[str, Any]] = None,
+    limit: int = 10000,
+    with_payload: bool = True,
+) -> List[Any]:
+    points = []
+    next_page = None
+    scroll_filter = build_qdrant_filter(where)
+    while True:
+        batch, next_page = vector_client.scroll(
+            collection_name=COLLECTION_NAME,
+            scroll_filter=scroll_filter,
+            limit=min(limit, 256),
+            offset=next_page,
+            with_payload=with_payload,
+            with_vectors=False,
+        )
+        points.extend(batch)
+        if next_page is None or len(points) >= limit:
+            break
+    return points[:limit]
+
+
+def point_payload(point: Any) -> Dict[str, Any]:
+    return dict(getattr(point, "payload", None) or {})
+
+
+def payload_to_result(point: Any, score: Optional[float] = None, retrieval_source: str = "vector") -> Dict[str, Any]:
+    payload = point_payload(point)
+    content = payload.pop("document", "")
+    distance = None
+    if score is not None:
+        distance = max(0.0, 1.0 - float(score))
+    return {
+        "id": str(getattr(point, "id", uuid.uuid4())),
+        "content": content,
+        "metadata": payload,
+        "distance": distance,
+        "retrieval_source": retrieval_source,
+    }
+
+
+def delete_vector_chunks_by_where(where: Dict[str, Any]) -> int:
+    points = qdrant_scroll_points(where=where, limit=100000)
+    point_ids = [point.id for point in points]
+    if point_ids:
+        models = import_qdrant_models()
+        vector_client.delete(
+            collection_name=COLLECTION_NAME,
+            points_selector=models.PointIdsList(points=point_ids),
+        )
+    return len(point_ids)
+
+
+def delete_vector_chunks_by_file_name(file_name: str) -> int:
+    if not file_name:
+        return 0
+    return delete_vector_chunks_by_where({"file_name": file_name})
+
+
+def count_chunks_by_file_sha256(file_sha256: str) -> int:
+    if not file_sha256:
+        return 0
+    try:
+        result = vector_client.count(
+            collection_name=COLLECTION_NAME,
+            count_filter=build_qdrant_filter({"file_sha256": file_sha256}),
+            exact=True,
+        )
+        return int(result.count)
+    except Exception:
+        return 0
+
+
+def get_duplicate_ingested_file(file_sha256: str) -> Optional[Dict[str, Any]]:
+    existing_file = get_ingested_file(file_sha256)
+    if existing_file and count_chunks_by_file_sha256(file_sha256) > 0:
+        return existing_file
+    return None
+
+
+def replace_existing_same_name_if_needed(file_name: str, file_sha256: str, enabled: bool) -> Tuple[int, int]:
+    if not enabled:
+        return 0, 0
+    same_name_records = [
+        record for record in list_ingested_files_by_name(file_name) if record.get("sha256") != file_sha256
+    ]
+    existing_points = qdrant_scroll_points(where={"file_name": file_name}, limit=100000)
+    existing_point_ids = [point.id for point in existing_points]
+    if not same_name_records and not existing_point_ids:
+        return 0, 0
+
+    if existing_point_ids:
+        models = import_qdrant_models()
+        vector_client.delete(
+            collection_name=COLLECTION_NAME,
+            points_selector=models.PointIdsList(points=existing_point_ids),
+        )
+    deleted_chunks = len(existing_point_ids)
+    deleted_records = delete_ingested_file_records_by_name(file_name)
+    return deleted_chunks, deleted_records
+
+
+# Local LLM protocol adapters are split out for OpenAI-compatible and Anthropic-compatible backends.
+# 本地大模型协议适配单独拆出，便于维护 OpenAI 兼容和 Anthropic 兼容后端。
+from .llm_clients import *  # noqa: F401,F403
+
+
+# =========================
+# 模型状态
+# =========================
+def record_model_event(component: str, status: str, detail: str) -> None:
+    st.session_state["model_events"].append(
+        {
+            "time": time.strftime("%H:%M:%S"),
+            "component": translate_text(component),
+            "status": translate_text(status),
+            "detail": translate_text(detail),
+        }
+    )
+
+
+def get_bge_cache_status() -> str:
+    try:
+        if is_bge_model_cached():
+            return localized_text("Local cache found: ", "已发现本地缓存：", "已發現本地快取：") + get_bge_cache_dir()
+        return localized_text(
+            "No complete cache found. First use will download to: ",
+            "未发现完整缓存，首次使用会下载到：",
+            "未發現完整快取，首次使用會下載到：",
+        ) + get_bge_cache_dir()
+    except Exception as e:
+        return localized_text("Unable to check cache: ", "无法检查缓存：", "無法檢查快取：") + str(e)
+
+
+def get_reranker_cache_status() -> str:
+    try:
+        if is_reranker_model_cached():
+            return localized_text("Local cache found: ", "已发现本地缓存：", "已發現本地快取：") + get_reranker_cache_dir()
+        return localized_text(
+            "No complete cache found. First use will download to: ",
+            "未发现完整缓存，首次使用会下载到：",
+            "未發現完整快取，首次使用會下載到：",
+        ) + get_reranker_cache_dir()
+    except Exception as e:
+        return localized_text("Unable to check cache: ", "无法检查缓存：", "無法檢查快取：") + str(e)
+
+
+def get_paddle_cache_status() -> str:
+    cache_roots = [
+        Path(get_paddleocr_cache_dir()) / "official_models",
+        Path.home() / ".paddlex" / "official_models",
+        Path.home() / ".paddleocr",
+        Path.home() / ".cache" / "paddle",
+    ]
+    existing = []
+    for root in cache_roots:
+        if root.exists():
+            children = [child.name for child in root.iterdir()]
+            if children:
+                existing.append(
+                    f"{root} ({len(children)} {localized_text('items', '项', '項')})"
+                )
+
+    if existing:
+        return localized_text("Cache found: ", "已发现缓存：", "已發現快取：") + "；".join(existing[:2])
+    return localized_text(
+        "No obvious cache found. First OCR use will download models.",
+        "未发现明显缓存，首次 OCR 会下载",
+        "未發現明顯快取，首次 OCR 會下載",
+    )
+
+
+def test_llm_connection(mode: str = "fast") -> str:
+    response = create_llm_chat_completion(
+        messages=[
+            {
+                "role": "system",
+                "content": localized_text(
+                    "You are a connectivity test assistant. Reply only with OK.",
+                    "你是连通性测试助手，只回复 OK。",
+                    "你是連通性測試助手，只回覆 OK。",
+                ),
+            },
+            {"role": "user", "content": localized_text("Test", "测试", "測試")},
+        ],
+        temperature=0,
+        mode=mode,
+    )
+    return response.choices[0].message.content or ""
+
+
+# =========================
+# 文件处理函数 / File handling and document parsing
+# =========================
+# Document parsing is kept in a separate module because PDF, Office, and OCR code grows quickly.
+# 文档解析单独放在一个模块里，因为 PDF、Office 和 OCR 逻辑会快速增长。
+from .document_parsing import *  # noqa: F401,F403
+
+
+# RAG ingestion and retrieval pipeline lives outside the infrastructure service module.
+# RAG 入库和检索流水线放在基础服务模块之外，便于独立维护。
+from .rag_pipeline import *  # noqa: F401,F403
+
+
+def get_file_summary_rows() -> List[Dict[str, Any]]:
+    points = qdrant_scroll_points(limit=100000)
+    rows_by_key = {}
+    for point in points:
+        payload = point_payload(point)
+        metadata = dict(payload)
+        metadata.pop("document", None)
+        if not metadata:
+            continue
+        key = (
+            metadata.get("doc_id", ""),
+            metadata.get("file_name", ""),
+            metadata.get("doc_category", ""),
+        )
+        row = rows_by_key.setdefault(
+            key,
+            {
+                source_label("source_file"): metadata.get("file_name", source_label("unknown_file")),
+                source_label("document_type"): translate_text(metadata.get("doc_category_name", source_label("unknown_type"))),
+                localized_text("Source Format", "来源格式", "來源格式"): metadata.get("source_type", source_label("unknown_type")),
+                "SHA256": str(metadata.get("file_sha256", ""))[:16],
+                localized_text("Chunk Count", "chunk 数", "chunk 數"): 0,
+            },
+        )
+        row[localized_text("Chunk Count", "chunk 数", "chunk 數")] += 1
+    return list(rows_by_key.values())
+
+
+def create_vector_library_backup() -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        if os.path.exists(APP_DB_FILE):
+            archive.write(APP_DB_FILE, APP_DB_FILE)
+        if os.path.isdir(QDRANT_DIR):
+            for root, _dirs, files in os.walk(QDRANT_DIR):
+                for file_name in files:
+                    file_path = os.path.join(root, file_name)
+                    archive_name = os.path.relpath(file_path, ".")
+                    archive.write(file_path, archive_name)
+    return output.getvalue()
+
+
+def safe_extract_backup(uploaded_backup) -> Tuple[str, bool]:
+    temp_dir = tempfile.mkdtemp(prefix="ocr_rag_restore_")
+    has_qdrant = False
+    has_app_db = False
+    try:
+        uploaded_backup.seek(0)
+    except Exception:
+        pass
+    with zipfile.ZipFile(uploaded_backup) as archive:
+        for member in archive.infolist():
+            normalized = member.filename.replace("\\", "/")
+            if normalized.endswith("/"):
+                continue
+            if normalized == APP_DB_FILE:
+                has_app_db = True
+            elif normalized.startswith(f"{QDRANT_DIR}/"):
+                has_qdrant = True
+            else:
+                continue
+            target_path = os.path.abspath(os.path.join(temp_dir, normalized))
+            if not target_path.startswith(os.path.abspath(temp_dir) + os.sep):
+                raise ValueError(
+                    localized_text(
+                        "The backup contains an unsafe path and was rejected.",
+                        "备份文件包含不安全路径，已拒绝导入。",
+                        "備份文件包含不安全路徑，已拒絕導入。",
+                    )
+                )
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            with archive.open(member) as source, open(target_path, "wb") as target:
+                shutil.copyfileobj(source, target)
+    if not has_qdrant and not has_app_db:
+        raise ValueError(
+            localized_text(
+                "The backup does not contain app_state.sqlite3 or qdrant_db contents.",
+                "备份包中没有发现 app_state.sqlite3 或 qdrant_db 内容。",
+                "備份包中沒有發現 app_state.sqlite3 或 qdrant_db 內容。",
+            )
+        )
+    return temp_dir, has_qdrant
+
+
+def restore_vector_library_backup(uploaded_backup) -> str:
+    restore_dir, has_qdrant = safe_extract_backup(uploaded_backup)
+    try:
+        try:
+            close_qdrant_singleton()
+            load_qdrant_client.clear()
+        except Exception:
+            pass
+        restored_app_db = os.path.join(restore_dir, APP_DB_FILE)
+        if os.path.exists(restored_app_db):
+            shutil.copy2(restored_app_db, APP_DB_FILE)
+        restored_qdrant_dir = os.path.join(restore_dir, QDRANT_DIR)
+        if has_qdrant and os.path.isdir(restored_qdrant_dir):
+            if os.path.isdir(QDRANT_DIR):
+                shutil.rmtree(QDRANT_DIR)
+            shutil.copytree(restored_qdrant_dir, QDRANT_DIR)
+        return localized_text(
+            "Backup imported. Restart Streamlit to ensure Qdrant and SQLite reload cleanly.",
+            "备份已导入。建议重启 Streamlit，确保 Qdrant 和 SQLite 重新加载。",
+            "備份已導入。建議重啟 Streamlit，確保 Qdrant 和 SQLite 重新載入。",
+        )
+    finally:
+        shutil.rmtree(restore_dir, ignore_errors=True)
+

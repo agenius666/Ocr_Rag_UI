@@ -8,8 +8,10 @@ def split_semantic_chunks(text: str, chunk_size: int = 600, overlap: int = 100) 
     text = text.strip()
     if not text:
         return []
+    chunk_size = max(int(chunk_size or 1), 1)
+    overlap = max(int(overlap or 0), 0)
     if overlap >= chunk_size:
-        raise ValueError("Chunk 重叠必须小于 Chunk 大小。")
+        overlap = max(0, min(chunk_size // 5, chunk_size - 1))
 
     units = split_text_units(text)
     chunks = []
@@ -81,6 +83,8 @@ def is_heading_line(line: str) -> bool:
         r"^\d+(\.\d+){0,4}[、.．\s]",
         r"^（[一二三四五六七八九十\d]+）",
         r"^\([一二三四五六七八九十\d]+\)",
+        r"^(chapter|section|article|clause|part|appendix)\s+[\w\d. -]+$",
+        r"^[ivxlcdm]+[.)]\s+",
     ]
     return any(re.match(pattern, compact) for pattern in patterns)
 
@@ -93,14 +97,13 @@ def split_by_sentence(text: str) -> List[str]:
 def split_long_unit(unit: str, chunk_size: int, overlap: int) -> List[str]:
     output = []
     start = 0
+    step = max(1, chunk_size - overlap)
     while start < len(unit):
         end = start + chunk_size
         chunk = unit[start:end].strip()
         if chunk:
             output.append(chunk)
-        start = end - overlap
-        if start < 0:
-            start = 0
+        start += step
     return output
 
 
