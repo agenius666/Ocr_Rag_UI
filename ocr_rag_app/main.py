@@ -10,24 +10,46 @@ from .ui.settings import render_settings_tab
 from .ui.model_status import render_model_status_tab
 from .ui.library import render_library_tab
 
-tab_upload, tab_search, tab_compliance, tab_config, tab_models, tab_manage = st.tabs(
-    ["上传入库", "检索问答", "合规分析", "配置中心", "模型状态", "文档库管理"]
-)
 
-with tab_upload:
-    render_upload_tab()
+def run_app() -> None:
+    """Render the full Streamlit UI on every rerun.
+    每次 Streamlit 重跑时重新渲染完整页面。
+    """
+    ensure_session_defaults()
+    render_global_styles()
+    st.title(
+        localized_text(
+            "OCR + BGE-M3 + Qdrant + Local LLM",
+            "OCR + BGE-M3 + Qdrant + 本地大模型",
+            "OCR + BGE-M3 + Qdrant + 本地大模型",
+        )
+    )
+    st.caption(
+        localized_text(
+            "Upload policies, regulatory requirements, and enterprise materials. The app parses them into Qdrant, then uses a local LLM API for Q&A and compliance gap analysis.",
+            "上传制度、监管要求和企业资料，解析后写入 Qdrant 向量库，再调用本地大模型接口做问答和合规差距分析。",
+            "上傳制度、監管要求和企業資料，解析後寫入 Qdrant 向量庫，再調用本地大模型接口做問答和合規差距分析。",
+        )
+    )
 
-with tab_search:
-    render_search_tab()
+    tab_upload, tab_search, tab_compliance, tab_config, tab_models, tab_manage = st.tabs(
+        ["上传入库", "检索问答", "合规分析", "配置中心", "模型状态", "文档库管理"]
+    )
 
-with tab_compliance:
-    render_compliance_tab()
+    with tab_upload:
+        render_upload_tab()
 
-with tab_config:
-    render_settings_tab()
+    with tab_search:
+        render_search_tab()
 
-with tab_models:
-    render_model_status_tab()
+    with tab_compliance:
+        render_compliance_tab()
 
-with tab_manage:
-    render_library_tab()
+    with tab_config:
+        render_settings_tab()
+
+    with tab_models:
+        render_model_status_tab()
+
+    with tab_manage:
+        render_library_tab()

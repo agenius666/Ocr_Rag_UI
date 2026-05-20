@@ -46,6 +46,11 @@ from .rag_utils import (
     split_semantic_chunks,
 )
 
+try:
+    fitz.TOOLS.mupdf_display_errors(False)
+except Exception:
+    pass
+
 # =========================
 # 基础配置
 # =========================
@@ -149,22 +154,28 @@ os.makedirs(DEFAULT_MODEL_CACHE_ROOT, exist_ok=True)
 # =========================
 # Streamlit 页面
 # =========================
-st.set_page_config(page_title="OCR RAG UI", layout="wide")
-
-st.markdown(
-    """
+GLOBAL_STYLE_CSS = """
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     [data-testid="stToolbar"] {visibility: hidden; height: 0; position: fixed;}
     [data-testid="stDecoration"] {display: none;}
     </style>
-    """,
-    unsafe_allow_html=True,
-)
+"""
 
-if "model_events" not in st.session_state:
-    st.session_state["model_events"] = []
+
+def render_global_styles() -> None:
+    """Inject global Streamlit CSS on every rerun.
+    每次重跑时注入全局 Streamlit 样式。
+    """
+    st.markdown(GLOBAL_STYLE_CSS, unsafe_allow_html=True)
+
+
+def ensure_session_defaults() -> None:
+    """Initialize Streamlit session keys used across split modules.
+    初始化拆分模块共享使用的 Streamlit 会话键。
+    """
+    st.session_state.setdefault("model_events", [])
 
 
 # =========================
@@ -1082,9 +1093,6 @@ if not get_config_value("ui_language", ""):
 
 patch_streamlit_i18n()
 
-st.title("OCR + BGE-M3 + Qdrant + 本地大模型")
-st.caption("上传制度、监管要求和企业资料，解析后写入 Qdrant 向量库，再调用 OpenAI 兼容接口做问答和合规差距分析。")
-
 
 def normalize_local_path(path_value: str, default: str = "") -> str:
     path_value = (path_value or "").strip()
@@ -1445,11 +1453,60 @@ def list_ingest_tasks(limit: int = 10) -> List[Dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+ACTIVE_INGEST_STATUSES = {"running", "pause_requested", "paused", "cancel_requested"}
+
+
+def get_live_ingest_future(task_id: str) -> Any:
+    """Return the in-process background future, if this app run owns it.
+    返回当前进程持有的后台 future；应用重启后旧任务不会再有 future。
+    """
+    try:
+        runtime = load_ingest_executor()
+        return runtime.get("futures", {}).get(task_id)
+    except Exception:
+        return None
+
+
+def is_ingest_task_actually_active(task: Dict[str, Any]) -> bool:
+    """Check whether a persisted task is still backed by a live worker.
+    判断数据库里的任务是否真的还有后台线程在执行。
+    """
+    if not task or task.get("status") not in ACTIVE_INGEST_STATUSES:
+        return False
+    future = get_live_ingest_future(task.get("id", ""))
+    return bool(future is not None and not future.done())
+
+
+def mark_stale_ingest_tasks_stopped(tasks: List[Dict[str, Any]]) -> bool:
+    """Convert stale active-looking tasks into stopped tasks after restart.
+    应用重启后，把数据库中残留的“看似运行中”任务归档为已终止。
+    """
+    changed = False
+    for task in tasks:
+        if task.get("status") in ACTIVE_INGEST_STATUSES and not is_ingest_task_actually_active(task):
+            update_ingest_task(
+                task["id"],
+                status="cancelled",
+                message=localized_text(
+                    "Task stopped after app restart or worker exit.",
+                    "任务已停止（应用重启或后台 worker 已退出）。",
+                    "任務已停止（應用重啟或後台 worker 已退出）。",
+                ),
+            )
+            changed = True
+    return changed
+
+
 def has_active_ingest_task(limit: int = 5) -> bool:
-    return any(
-        task["status"] in {"running", "pause_requested", "paused", "cancel_requested"}
-        for task in list_ingest_tasks(limit=limit)
-    )
+    tasks = list_ingest_tasks(limit=limit)
+    return any(task.get("status") in ACTIVE_INGEST_STATUSES for task in tasks)
+
+
+def has_live_ingest_task_in_list(tasks: List[Dict[str, Any]]) -> bool:
+    """Return True only for tasks with a live background worker.
+    只有存在真实后台 worker 时才返回 True。
+    """
+    return any(is_ingest_task_actually_active(task) for task in tasks)
 
 
 def delete_all_ingest_tasks() -> None:
@@ -1796,56 +1853,125 @@ def is_reranker_model_cached() -> bool:
 # =========================
 # 加载模型和数据库
 # =========================
-@st.cache_resource
+MODEL_RESOURCE_CACHE: Dict[Tuple[Any, ...], Any] = {}
+MODEL_RESOURCE_LOCK = threading.RLock()
+
+
+def get_cached_model_resource(cache_key: Tuple[Any, ...], factory: Callable[[], Any]) -> Any:
+    """Load heavy ML resources once without depending on Streamlit session context.
+    不依赖 Streamlit 会话上下文，只加载一次重型模型资源。
+    """
+    with MODEL_RESOURCE_LOCK:
+        if cache_key not in MODEL_RESOURCE_CACHE:
+            MODEL_RESOURCE_CACHE[cache_key] = factory()
+        return MODEL_RESOURCE_CACHE[cache_key]
+
+
+def clear_cached_model_resources(prefix: Optional[str] = None) -> None:
+    """Release cached ML resources by prefix.
+    按前缀释放已缓存的模型资源。
+    """
+    with MODEL_RESOURCE_LOCK:
+        keys = [
+            key for key in MODEL_RESOURCE_CACHE
+            if prefix is None or (key and key[0] == prefix)
+        ]
+        for key in keys:
+            MODEL_RESOURCE_CACHE.pop(key, None)
+    gc.collect()
+
+
 def load_ocr_model():
     """
     PaddleOCR 中文模型。
     use_textline_orientation=True 用于处理文字方向。
     lang='ch' 适合中文，也能识别一部分英文。
     """
-    os.environ["PADDLE_PDX_CACHE_HOME"] = get_paddleocr_cache_dir()
-    from paddleocr import PaddleOCR
+    cache_key = ("ocr", get_paddleocr_model_label(), get_paddleocr_cache_dir())
 
-    ocr_config = get_paddleocr_model_config()
-    return PaddleOCR(
-        use_doc_orientation_classify=False,
-        use_doc_unwarping=False,
-        use_textline_orientation=True,
-        text_detection_model_name=ocr_config["det"],
-        text_recognition_model_name=ocr_config["rec"],
-        text_recognition_batch_size=4,
-        text_det_limit_side_len=960,
-        lang="ch",
-    )
+    def factory() -> Any:
+        os.environ["PADDLE_PDX_CACHE_HOME"] = get_paddleocr_cache_dir()
+        from paddleocr import PaddleOCR
+
+        ocr_config = get_paddleocr_model_config()
+        return PaddleOCR(
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=True,
+            text_detection_model_name=ocr_config["det"],
+            text_recognition_model_name=ocr_config["rec"],
+            text_recognition_batch_size=4,
+            text_det_limit_side_len=960,
+            lang="ch",
+        )
+
+    return get_cached_model_resource(cache_key, factory)
 
 
-@st.cache_resource
+def clear_ocr_model_cache() -> None:
+    clear_cached_model_resources("ocr")
+
+
+load_ocr_model.clear = clear_ocr_model_cache
+
+
 def load_embedding_model():
     """
     BAAI/bge-m3 embedding 模型。
     第一次运行会下载模型，速度取决于网络。
     """
-    from sentence_transformers import SentenceTransformer
+    cache_key = ("bge", get_bge_cache_dir())
 
-    model_source = get_bge_cache_dir() if os.path.exists(os.path.join(get_bge_cache_dir(), "modules.json")) else EMBEDDING_MODEL_NAME
-    return SentenceTransformer(
-        model_source,
-        cache_folder=get_bge_cache_dir(),
-        local_files_only=is_bge_model_cached(),
-    )
+    def factory() -> Any:
+        from sentence_transformers import SentenceTransformer
+
+        model_source = (
+            get_bge_cache_dir()
+            if os.path.exists(os.path.join(get_bge_cache_dir(), "modules.json"))
+            else EMBEDDING_MODEL_NAME
+        )
+        return SentenceTransformer(
+            model_source,
+            cache_folder=get_bge_cache_dir(),
+            local_files_only=is_bge_model_cached(),
+        )
+
+    return get_cached_model_resource(cache_key, factory)
 
 
-@st.cache_resource
+def clear_embedding_model_cache() -> None:
+    clear_cached_model_resources("bge")
+
+
+load_embedding_model.clear = clear_embedding_model_cache
+
+
 def load_reranker_model():
-    from sentence_transformers import CrossEncoder
+    cache_key = ("reranker", get_reranker_cache_dir())
 
-    model_source = get_reranker_cache_dir() if os.path.exists(os.path.join(get_reranker_cache_dir(), "config.json")) else RERANKER_MODEL_NAME
-    return CrossEncoder(
-        model_source,
-        max_length=512,
-        cache_folder=get_reranker_cache_dir(),
-        local_files_only=is_reranker_model_cached(),
-    )
+    def factory() -> Any:
+        from sentence_transformers import CrossEncoder
+
+        model_source = (
+            get_reranker_cache_dir()
+            if os.path.exists(os.path.join(get_reranker_cache_dir(), "config.json"))
+            else RERANKER_MODEL_NAME
+        )
+        return CrossEncoder(
+            model_source,
+            max_length=512,
+            cache_folder=get_reranker_cache_dir(),
+            local_files_only=is_reranker_model_cached(),
+        )
+
+    return get_cached_model_resource(cache_key, factory)
+
+
+def clear_reranker_model_cache() -> None:
+    clear_cached_model_resources("reranker")
+
+
+load_reranker_model.clear = clear_reranker_model_cache
 
 
 def import_qdrant_models():
@@ -2147,6 +2273,7 @@ from .llm_clients import *  # noqa: F401,F403
 # 模型状态
 # =========================
 def record_model_event(component: str, status: str, detail: str) -> None:
+    ensure_session_defaults()
     st.session_state["model_events"].append(
         {
             "time": time.strftime("%H:%M:%S"),
@@ -2155,6 +2282,7 @@ def record_model_event(component: str, status: str, detail: str) -> None:
             "detail": translate_text(detail),
         }
     )
+    st.session_state["model_events"] = st.session_state["model_events"][-50:]
 
 
 def get_bge_cache_status() -> str:
@@ -2347,4 +2475,3 @@ def restore_vector_library_backup(uploaded_backup) -> str:
         )
     finally:
         shutil.rmtree(restore_dir, ignore_errors=True)
-

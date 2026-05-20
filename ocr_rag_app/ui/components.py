@@ -314,13 +314,21 @@ def format_task_status(status: str) -> str:
     return TASK_STATUS_LABELS.get(status, status or source_label("unknown_type"))
 
 
+def format_task_display_status(task: Dict[str, Any]) -> str:
+    status = task.get("status", "")
+    if status in ACTIVE_INGEST_STATUSES and not is_ingest_task_actually_active(task):
+        return localized_text("Disconnected", "已断开", "已斷開")
+    return format_task_status(status)
+
+
 def render_ingest_task_controls(task: Dict[str, Any]) -> None:
     task_id = task["id"]
     status = task["status"]
+    is_live_task = is_ingest_task_actually_active(task)
     control_cols = st.columns([2, 1, 1, 1])
     with control_cols[0]:
         st.caption(
-            f"{format_task_status(status)} | "
+            f"{format_task_display_status(task)} | "
             f"{task['processed_files']}/{task['total_files']} | "
             f"{task['message']}"
         )
@@ -328,7 +336,7 @@ def render_ingest_task_controls(task: Dict[str, Any]) -> None:
         if st.button(
             localized_text("Pause", "暂停", "暫停"),
             key=f"pause_task_{task_id}",
-            disabled=status not in {"running"},
+            disabled=not is_live_task or status not in {"running"},
         ):
             request_pause_ingest_task(task_id)
             st.rerun()
@@ -336,7 +344,7 @@ def render_ingest_task_controls(task: Dict[str, Any]) -> None:
         if st.button(
             localized_text("Resume", "继续", "繼續"),
             key=f"resume_task_{task_id}",
-            disabled=status not in {"paused", "pause_requested"},
+            disabled=not is_live_task or status not in {"paused", "pause_requested"},
         ):
             resume_ingest_task(task_id)
             st.rerun()
@@ -344,7 +352,7 @@ def render_ingest_task_controls(task: Dict[str, Any]) -> None:
         if st.button(
             localized_text("Stop", "终止", "終止"),
             key=f"cancel_task_{task_id}",
-            disabled=status not in {"running", "pause_requested", "paused"},
+            disabled=not is_live_task or status not in {"running", "pause_requested", "paused"},
         ):
             request_cancel_ingest_task(task_id)
             st.rerun()
@@ -352,11 +360,9 @@ def render_ingest_task_controls(task: Dict[str, Any]) -> None:
 
 def render_recent_ingest_tasks(expanded: bool = False) -> None:
     recent_tasks = list_ingest_tasks(limit=5)
-    has_active_task = any(
-        task["status"] in {"running", "pause_requested", "paused", "cancel_requested"}
-        for task in recent_tasks
-    )
-    with st.expander(localized_text("Recent Ingestion Tasks", "最近入库任务", "最近入庫任務"), expanded=expanded or has_active_task):
+    has_active_status = any(task.get("status") in ACTIVE_INGEST_STATUSES for task in recent_tasks)
+    has_live_task = has_live_ingest_task_in_list(recent_tasks)
+    with st.expander(localized_text("Recent Ingestion Tasks", "最近入库任务", "最近入庫任務"), expanded=expanded or has_active_status):
         if not recent_tasks:
             st.info(localized_text("No background ingestion tasks yet.", "暂无后台入库任务。", "暫無後台入庫任務。"))
             return
@@ -368,7 +374,7 @@ def render_recent_ingest_tasks(expanded: bool = False) -> None:
             if st.button(
                 localized_text("Clear Task History", "清空任务历史", "清空任務歷史"),
                 key="clear_ingest_task_history",
-                disabled=has_active_task,
+                disabled=has_live_task,
             ):
                 delete_all_ingest_tasks()
                 st.success(localized_text("Ingestion task history cleared.", "已清空入库任务历史。", "已清空入庫任務歷史。"))
@@ -381,7 +387,7 @@ def render_recent_ingest_tasks(expanded: bool = False) -> None:
         render_result_dataframe(
             [
                 {
-                    localized_text("Status", "状态", "狀態"): format_task_status(task["status"]),
+                    localized_text("Status", "状态", "狀態"): format_task_display_status(task),
                     localized_text("Progress", "进度", "進度"): f"{task['processed_files']}/{task['total_files']}",
                     localized_text("Succeeded", "成功", "成功"): task["success_count"],
                     localized_text("Duplicate", "重复", "重複"): task["duplicate_count"],

@@ -238,6 +238,7 @@ def render_model_status_tab() -> None:
                     )
                     st.error(localized_text(f"Local LLM test failed: {e}", f"本地大模型测试失败：{e}", f"本地大模型測試失敗：{e}"))
 
-    if st.session_state["model_events"]:
-        st.markdown("### 最近模型事件")
-        st.dataframe(st.session_state["model_events"][-20:], width="stretch")
+    model_events = st.session_state.get("model_events", [])
+    if model_events:
+        st.markdown(f"### {localized_text('Recent Model Events', '最近模型事件', '最近模型事件')}")
+        st.dataframe(model_events[-20:], width="stretch")
