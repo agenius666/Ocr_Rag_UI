@@ -1,0 +1,36 @@
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local secrets and runtime config
+.env
+*.local
+
+# Application runtime data
+uploads/
+qdrant_db/
+app_state.sqlite3
+app_state.sqlite3-*
+
+# Model and tool caches
+.cache/
+models/
+model_cache/
+
+# Logs
+*.log
+logs/
+
+# Office temporary files
+~$*

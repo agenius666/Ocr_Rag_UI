@@ -1,0 +1,13 @@
+streamlit
+qdrant-client
+sentence-transformers
+paddleocr
+paddlepaddle
+pymupdf
+pillow
+openai
+python-dotenv
+numpy
+python-docx
+python-pptx
+openpyxl
