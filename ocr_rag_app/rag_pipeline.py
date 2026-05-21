@@ -1066,16 +1066,20 @@ def maybe_rewrite_retrieval_query(
         return question, str(e)
 
 
-def ask_llm(
-    question: str,
-    search_results: List[Dict[str, Any]],
-    chat_history: Optional[List[Dict[str, Any]]] = None,
-    mode: str = "fast",
-    context_turns: int = DEFAULT_CONTEXT_TURNS,
-) -> str:
-    context = build_context(search_results)
-    history = build_chat_history(chat_history or [], max_messages=context_turns * 2)
-    system_prompt = localized_text(
+def render_prompt_template(template: str, values: Dict[str, Any]) -> str:
+    output = template or ""
+    for key, value in values.items():
+        output = output.replace("{" + key + "}", str(value))
+    return output
+
+
+def prompt_config_value(key: str, default_prompt: str) -> str:
+    configured = get_config_value(key, "")
+    return configured if configured.strip() else default_prompt
+
+
+def default_rag_system_prompt() -> str:
+    return localized_text(
         f"""
 You are a rigorous local-document Q&A assistant.
 Answer only from the retrieved materials provided by the user.
@@ -1098,9 +1102,12 @@ If the conversation history conflicts with the retrieved materials, rely on the 
 回答時盡量引用來源文件、片段編號和來源位置。
 如果【對話歷史】與【檢索資料】衝突，以【檢索資料】為準。
 """,
-    )
-    user_prompt = localized_text(
-        f"""
+    ).strip()
+
+
+def default_rag_user_prompt_template() -> str:
+    return localized_text(
+        """
 Current conversation history:
 {history}
 
@@ -1112,7 +1119,7 @@ Current user question:
 
 Answer based on the materials above.
 """,
-        f"""
+        """
 下面是当前对话历史：
 {history}
 
@@ -1124,7 +1131,7 @@ Answer based on the materials above.
 
 请基于上述资料回答。
 """,
-        f"""
+        """
 下面是當前對話歷史：
 {history}
 
@@ -1136,6 +1143,26 @@ Answer based on the materials above.
 
 請基於上述資料回答。
 """,
+    ).strip()
+
+
+def ask_llm(
+    question: str,
+    search_results: List[Dict[str, Any]],
+    chat_history: Optional[List[Dict[str, Any]]] = None,
+    mode: str = "fast",
+    context_turns: int = DEFAULT_CONTEXT_TURNS,
+) -> str:
+    context = build_context(search_results)
+    history = build_chat_history(chat_history or [], max_messages=context_turns * 2)
+    system_prompt = prompt_config_value("rag_system_prompt", default_rag_system_prompt())
+    user_prompt = render_prompt_template(
+        prompt_config_value("rag_user_prompt_template", default_rag_user_prompt_template()),
+        {
+            "history": history,
+            "context": context,
+            "question": question,
+        },
     )
     response = create_llm_chat_completion(
         messages=[
@@ -1222,6 +1249,95 @@ def is_likely_general_chat_question(question: str) -> bool:
     }
 
 
+def default_compliance_system_prompt_template() -> str:
+    return localized_text(
+        """
+You are a rigorous compliance gap analysis assistant.
+You must reference both the regulatory/policy materials and the enterprise materials.
+Do not fabricate regulatory requirements, and do not conclude that the enterprise is non-compliant when enterprise evidence is insufficient.
+Every conclusion must cite source file, chunk number, and source location from both regulatory and enterprise evidence.
+If enterprise evidence is missing for a requirement, mark it as "{shortage_label}".
+{clause_prompt}
+First output a Markdown table with these columns: {table_columns}.
+{missing_prompt}
+You may add concise explanatory notes after the table when necessary.
+{language_instruction}
+""",
+        """
+你是一个严谨的合规差距分析助手。
+你必须同时参考【监管要求 / 规章制度】和【企业资料】。
+不要编造监管要求，也不要在企业资料不足时直接判定企业违规。
+每个结论都必须引用监管资料和企业资料的来源文件、片段编号、来源位置。
+如果企业资料没有对应证据，请标记为“{shortage_label}”。
+{clause_prompt}
+请先输出 Markdown 表格，列为：{table_columns}。
+{missing_prompt}
+表格后可以再补充必要说明。
+""",
+        """
+你是一個嚴謹的合規差距分析助手。
+你必須同時參考【監管要求 / 規章制度】和【企業資料】。
+不要編造監管要求，也不要在企業資料不足時直接判定企業違規。
+每個結論都必須引用監管資料和企業資料的來源文件、片段編號、來源位置。
+如果企業資料沒有對應證據，請標記為「{shortage_label}」。
+{clause_prompt}
+請先輸出 Markdown 表格，列為：{table_columns}。
+{missing_prompt}
+表格後可以再補充必要說明。
+""",
+    ).strip()
+
+
+def default_compliance_user_prompt_template() -> str:
+    return localized_text(
+        """
+Current compliance-analysis conversation history:
+{history}
+
+Analysis topic:
+{topic}
+
+[{regulation_label}]
+{regulation_context}
+
+[{enterprise_label}]
+{enterprise_context}
+
+Perform the compliance gap analysis based on the materials above.
+""",
+        """
+下面是当前合规分析对话历史：
+{history}
+
+分析主题：
+{topic}
+
+【{regulation_label}】
+{regulation_context}
+
+【{enterprise_label}】
+{enterprise_context}
+
+请基于上述资料做合规差距分析。
+""",
+        """
+下面是當前合規分析對話歷史：
+{history}
+
+分析主題：
+{topic}
+
+【{regulation_label}】
+{regulation_context}
+
+【{enterprise_label}】
+{enterprise_context}
+
+請基於上述資料做合規差距分析。
+""",
+    ).strip()
+
+
 def ask_llm_compliance(
     topic: str,
     regulation_results: List[Dict[str, Any]],
@@ -1264,88 +1380,26 @@ def ask_llm_compliance(
         "问题点、对应监管要求、企业资料证据、风险等级、整改建议、引用来源",
         "問題點、對應監管要求、企業資料證據、風險等級、整改建議、引用來源",
     )
-    system_prompt = localized_text(
-        f"""
-You are a rigorous compliance gap analysis assistant.
-You must reference both the regulatory/policy materials and the enterprise materials.
-Do not fabricate regulatory requirements, and do not conclude that the enterprise is non-compliant when enterprise evidence is insufficient.
-Every conclusion must cite source file, chunk number, and source location from both regulatory and enterprise evidence.
-If enterprise evidence is missing for a requirement, mark it as "{shortage_label}".
-{clause_prompt}
-First output a Markdown table with these columns: {table_columns}.
-{missing_prompt}
-You may add concise explanatory notes after the table when necessary.
-{llm_language_instruction()}
-""",
-        f"""
-你是一个严谨的合规差距分析助手。
-你必须同时参考【监管要求 / 规章制度】和【企业资料】。
-不要编造监管要求，也不要在企业资料不足时直接判定企业违规。
-每个结论都必须引用监管资料和企业资料的来源文件、片段编号、来源位置。
-如果企业资料没有对应证据，请标记为“{shortage_label}”。
-{clause_prompt}
-请先输出 Markdown 表格，列为：{table_columns}。
-{missing_prompt}
-表格后可以再补充必要说明。
-""",
-        f"""
-你是一個嚴謹的合規差距分析助手。
-你必須同時參考【監管要求 / 規章制度】和【企業資料】。
-不要編造監管要求，也不要在企業資料不足時直接判定企業違規。
-每個結論都必須引用監管資料和企業資料的來源文件、片段編號、來源位置。
-如果企業資料沒有對應證據，請標記為「{shortage_label}」。
-{clause_prompt}
-請先輸出 Markdown 表格，列為：{table_columns}。
-{missing_prompt}
-表格後可以再補充必要說明。
-""",
+    system_prompt = render_prompt_template(
+        prompt_config_value("compliance_system_prompt", default_compliance_system_prompt_template()),
+        {
+            "shortage_label": shortage_label,
+            "clause_prompt": clause_prompt,
+            "table_columns": table_columns,
+            "missing_prompt": missing_prompt,
+            "language_instruction": llm_language_instruction(),
+        },
     )
-    user_prompt = localized_text(
-        f"""
-Current compliance-analysis conversation history:
-{history}
-
-Analysis topic:
-{topic}
-
-[{source_label("regulations")}]
-{regulation_context}
-
-[{source_label("enterprise")}]
-{enterprise_context}
-
-Perform the compliance gap analysis based on the materials above.
-""",
-        f"""
-下面是当前合规分析对话历史：
-{history}
-
-分析主题：
-{topic}
-
-【{source_label("regulations")}】
-{regulation_context}
-
-【{source_label("enterprise")}】
-{enterprise_context}
-
-请基于上述资料做合规差距分析。
-""",
-        f"""
-下面是當前合規分析對話歷史：
-{history}
-
-分析主題：
-{topic}
-
-【{source_label("regulations")}】
-{regulation_context}
-
-【{source_label("enterprise")}】
-{enterprise_context}
-
-請基於上述資料做合規差距分析。
-""",
+    user_prompt = render_prompt_template(
+        prompt_config_value("compliance_user_prompt_template", default_compliance_user_prompt_template()),
+        {
+            "history": history,
+            "topic": topic,
+            "regulation_label": source_label("regulations"),
+            "regulation_context": regulation_context,
+            "enterprise_label": source_label("enterprise"),
+            "enterprise_context": enterprise_context,
+        },
     )
     response = create_llm_chat_completion(
         messages=[
@@ -1356,6 +1410,90 @@ Perform the compliance gap analysis based on the materials above.
         mode=mode,
     )
     return response.choices[0].message.content
+
+
+def ask_llm_batch_excel(
+    row_prompt: str,
+    json_template: Dict[str, str],
+    search_results: List[Dict[str, Any]],
+    mode: str = "fast",
+) -> str:
+    context = build_context(search_results) if search_results else source_label("none")
+    json_template_text = json.dumps(json_template, ensure_ascii=False, indent=2)
+    system_prompt = localized_text(
+        f"""
+You are a strict batch Excel analysis assistant.
+Use only the retrieved materials and the row-level task prompt to answer.
+Return one valid JSON object only. Do not wrap it in Markdown code fences. Do not add any explanation before or after JSON.
+The JSON keys must exactly match the provided JSON template keys.
+Keep every value within the requested length limit.
+If the materials are insufficient, write a concise "insufficient evidence" statement in the relevant field.
+{llm_language_instruction()}
+""",
+        """
+你是一个严格的批量 Excel 分析助手。
+你只能根据检索资料和当前行的任务提示进行回答。
+只返回一个合法 JSON 对象。不要使用 Markdown 代码块，不要在 JSON 前后添加解释。
+JSON key 必须与提供的 JSON 模板完全一致。
+每个字段都要控制在要求的字数以内。
+如果资料不足，请在对应字段中简要说明“证据不足”。
+""",
+        """
+你是一個嚴格的批次 Excel 分析助手。
+你只能根據檢索資料和當前列的任務提示進行回答。
+只返回一個合法 JSON 物件。不要使用 Markdown 程式碼區塊，不要在 JSON 前後添加解釋。
+JSON key 必須與提供的 JSON 模板完全一致。
+每個欄位都要控制在要求的字數以內。
+如果資料不足，請在對應欄位中簡要說明「證據不足」。
+""",
+    )
+    user_prompt = localized_text(
+        f"""
+Row-level task prompt:
+{row_prompt}
+
+Retrieved materials:
+{context}
+
+Required JSON template:
+{json_template_text}
+
+Return JSON only.
+""",
+        f"""
+当前行任务提示：
+{row_prompt}
+
+检索资料：
+{context}
+
+必须返回的 JSON 模板：
+{json_template_text}
+
+请只返回 JSON。
+""",
+        f"""
+當前列任務提示：
+{row_prompt}
+
+檢索資料：
+{context}
+
+必須返回的 JSON 模板：
+{json_template_text}
+
+請只返回 JSON。
+""",
+    )
+    response = create_llm_chat_completion(
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.1,
+        mode=mode,
+    )
+    return response.choices[0].message.content or ""
 
 
 # =========================

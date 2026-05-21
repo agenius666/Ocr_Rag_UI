@@ -2415,15 +2415,25 @@ def get_file_summary_rows() -> List[Dict[str, Any]]:
         row = rows_by_key.setdefault(
             key,
             {
-                source_label("source_file"): metadata.get("file_name", source_label("unknown_file")),
-                source_label("document_type"): translate_text(metadata.get("doc_category_name", source_label("unknown_type"))),
-                localized_text("Source Format", "来源格式", "來源格式"): metadata.get("source_type", source_label("unknown_type")),
-                "SHA256": str(metadata.get("file_sha256", ""))[:16],
-                localized_text("Chunk Count", "chunk 数", "chunk 數"): 0,
+                "source_file": metadata.get("file_name", source_label("unknown_file")),
+                "document_type": translate_text(metadata.get("doc_category_name", source_label("unknown_type"))),
+                "source_format": metadata.get("source_type", source_label("unknown_type")),
+                "sha256": str(metadata.get("file_sha256", ""))[:16],
+                "chunk_count": 0,
             },
         )
-        row[localized_text("Chunk Count", "chunk 数", "chunk 數")] += 1
-    return list(rows_by_key.values())
+        row["chunk_count"] += 1
+
+    return [
+        {
+            source_label("source_file"): row["source_file"],
+            source_label("document_type"): row["document_type"],
+            localized_text("Source Format", "来源格式", "來源格式"): row["source_format"],
+            localized_text("Chunk Count", "chunk 数", "chunk 數"): row["chunk_count"],
+            "SHA256": row["sha256"],
+        }
+        for row in rows_by_key.values()
+    ]
 
 
 def create_vector_library_backup() -> bytes:

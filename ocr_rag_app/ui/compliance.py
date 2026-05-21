@@ -189,6 +189,32 @@ def render_compliance_tab() -> None:
             )
             set_bool_config("compliance_include_missing_list", compliance_include_missing_list)
 
+        placeholder_col = localized_text("Placeholder", "占位符", "佔位符")
+        meaning_col = localized_text("Meaning", "含义", "含義")
+        render_prompt_editor(
+            "compliance",
+            default_compliance_system_prompt_template(),
+            default_compliance_user_prompt_template(),
+            localized_text(
+                "Available placeholders: {history}, {topic}, {regulation_label}, {regulation_context}, {enterprise_label}, {enterprise_context}, {shortage_label}, {clause_prompt}, {table_columns}, {missing_prompt}, {language_instruction}",
+                "可用占位符：{history}、{topic}、{regulation_label}、{regulation_context}、{enterprise_label}、{enterprise_context}、{shortage_label}、{clause_prompt}、{table_columns}、{missing_prompt}、{language_instruction}",
+                "可用佔位符：{history}、{topic}、{regulation_label}、{regulation_context}、{enterprise_label}、{enterprise_context}、{shortage_label}、{clause_prompt}、{table_columns}、{missing_prompt}、{language_instruction}",
+            ),
+            [
+                {placeholder_col: "{history}", meaning_col: localized_text("Recent compliance-analysis conversation history.", "最近的合规分析对话历史。", "最近的合規分析對話歷史。")},
+                {placeholder_col: "{topic}", meaning_col: localized_text("The current analysis topic or rewritten retrieval query.", "当前分析主题，通常是补全后的检索问题。", "當前分析主題，通常是補全後的檢索問題。")},
+                {placeholder_col: "{regulation_label}", meaning_col: localized_text("Display label for the regulatory evidence section.", "监管资料区块的显示名称。", "監管資料區塊的顯示名稱。")},
+                {placeholder_col: "{regulation_context}", meaning_col: localized_text("Retrieved regulatory or policy evidence.", "召回的监管要求或规章制度证据。", "召回的監管要求或規章制度證據。")},
+                {placeholder_col: "{enterprise_label}", meaning_col: localized_text("Display label for the enterprise evidence section.", "企业资料区块的显示名称。", "企業資料區塊的顯示名稱。")},
+                {placeholder_col: "{enterprise_context}", meaning_col: localized_text("Retrieved enterprise evidence.", "召回的企业资料证据。", "召回的企業資料證據。")},
+                {placeholder_col: "{shortage_label}", meaning_col: localized_text("Wording used when enterprise evidence is insufficient.", "企业证据不足时使用的固定表述。", "企業證據不足時使用的固定表述。")},
+                {placeholder_col: "{clause_prompt}", meaning_col: localized_text("Instruction for clause-by-clause analysis or summary analysis.", "逐条对照或归纳分析的指令。", "逐條對照或歸納分析的指令。")},
+                {placeholder_col: "{table_columns}", meaning_col: localized_text("Required Markdown table column names.", "要求模型输出的 Markdown 表格列名。", "要求模型輸出的 Markdown 表格欄名。")},
+                {placeholder_col: "{missing_prompt}", meaning_col: localized_text("Instruction for the missing-materials section.", "资料不足清单部分的输出指令。", "資料不足清單部分的輸出指令。")},
+                {placeholder_col: "{language_instruction}", meaning_col: localized_text("Output language instruction based on the current UI language.", "根据当前界面语言生成的输出语言要求。", "根據當前介面語言生成的輸出語言要求。")},
+            ],
+        )
+
         if st.button("清空合规分析对话", key="clear_compliance_chat"):
             clear_chat_session(compliance_session_id)
             bump_chat_session_revision("compliance")

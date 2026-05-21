@@ -163,6 +163,53 @@ def render_chat_content(content: str) -> None:
         st.markdown(normalized_content)
 
 
+def render_prompt_editor(
+    config_prefix: str,
+    system_default: str,
+    user_default: str,
+    placeholder_hint: str,
+    placeholder_descriptions: Optional[List[Dict[str, str]]] = None,
+) -> None:
+    with st.expander(localized_text("Answer Guidance Structure", "回答引导结构", "回答引導結構"), expanded=False):
+        st.caption(
+            localized_text(
+                "Edit and save the guidance used by the local LLM. Leave it empty or restore defaults to use the built-in structure.",
+                "可以编辑并保存本页面调用大模型时使用的引导结构；留空或恢复默认则使用内置结构。",
+                "可以編輯並保存本頁面調用大模型時使用的引導結構；留空或恢復預設則使用內建結構。",
+            )
+        )
+        st.caption(placeholder_hint)
+        if placeholder_descriptions:
+            st.markdown(localized_text("##### Placeholder Meanings", "##### 占位符含义", "##### 佔位符含義"))
+            st.table(placeholder_descriptions)
+        system_key = f"{config_prefix}_system_prompt"
+        user_key = f"{config_prefix}_user_prompt_template"
+        with st.form(f"{config_prefix}_prompt_editor_form"):
+            system_prompt = st.text_area(
+                localized_text("System Prompt", "系统提示词", "系統提示詞"),
+                value=get_config_value(system_key, "").strip() or system_default,
+                height=220,
+                key=f"{config_prefix}_system_prompt_input",
+            )
+            user_prompt_template = st.text_area(
+                localized_text("User Prompt Template", "用户提示词模板", "使用者提示詞模板"),
+                value=get_config_value(user_key, "").strip() or user_default,
+                height=220,
+                key=f"{config_prefix}_user_prompt_template_input",
+            )
+            save_prompt = st.form_submit_button(localized_text("Save Guidance", "保存引导结构", "保存引導結構"), type="primary")
+        if save_prompt:
+            set_config_value(system_key, system_prompt)
+            set_config_value(user_key, user_prompt_template)
+            st.success(localized_text("Guidance saved.", "引导结构已保存。", "引導結構已保存。"))
+
+        if st.button(localized_text("Restore Built-in Guidance", "恢复内置引导结构", "恢復內建引導結構"), key=f"{config_prefix}_prompt_reset"):
+            set_config_value(system_key, "")
+            set_config_value(user_key, "")
+            st.success(localized_text("Built-in guidance restored.", "已恢复内置引导结构。", "已恢復內建引導結構。"))
+            st.rerun()
+
+
 def render_rag_chat_panel(messages: List[Dict[str, Any]], panel_key: Optional[str] = None) -> None:
     chat_panel = st.container(height=CHAT_PANEL_HEIGHT, border=True, key=panel_key)
     with chat_panel:

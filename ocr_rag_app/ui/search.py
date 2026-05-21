@@ -136,6 +136,45 @@ def render_search_tab() -> None:
             )
             set_config_value("rag_fetch_k", rag_fetch_k)
 
+        placeholder_col = localized_text("Placeholder", "占位符", "佔位符")
+        meaning_col = localized_text("Meaning", "含义", "含義")
+        render_prompt_editor(
+            "rag",
+            default_rag_system_prompt(),
+            default_rag_user_prompt_template(),
+            localized_text(
+                "Available placeholders: {history}, {context}, {question}",
+                "可用占位符：{history}、{context}、{question}",
+                "可用佔位符：{history}、{context}、{question}",
+            ),
+            [
+                {
+                    placeholder_col: "{history}",
+                    meaning_col: localized_text(
+                        "Recent conversation history sent to the model.",
+                        "发送给模型的最近对话历史。",
+                        "發送給模型的最近對話歷史。",
+                    ),
+                },
+                {
+                    placeholder_col: "{context}",
+                    meaning_col: localized_text(
+                        "Retrieved materials assembled from the vector store.",
+                        "从向量库召回并拼接后的检索资料。",
+                        "從向量庫召回並拼接後的檢索資料。",
+                    ),
+                },
+                {
+                    placeholder_col: "{question}",
+                    meaning_col: localized_text(
+                        "The current question used for answering, usually the rewritten retrieval query.",
+                        "本轮用于回答的问题，通常是补全后的检索问题。",
+                        "本輪用於回答的問題，通常是補全後的檢索問題。",
+                    ),
+                },
+            ],
+        )
+
         if st.button("清空当前对话", key="clear_rag_chat"):
             clear_chat_session(rag_session_id)
             bump_chat_session_revision("rag")
