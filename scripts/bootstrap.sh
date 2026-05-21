@@ -182,6 +182,47 @@ EOF
   chmod +x "$launcher"
 }
 
+write_macos_launcher() {
+  local launcher="$INSTALL_DIR/start.command"
+  cat > "$launcher" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+
+schedule_terminal_close() {
+  if [ "${DOC_RAG_KEEP_TERMINAL_OPEN:-0}" = "1" ]; then
+    return 0
+  fi
+  if [ "$(uname -s 2>/dev/null || true)" != "Darwin" ]; then
+    return 0
+  fi
+  command -v osascript >/dev/null 2>&1 || return 0
+  local current_tty
+  current_tty="$(tty 2>/dev/null || true)"
+  [ -n "$current_tty" ] || return 0
+  nohup osascript \
+    -e 'delay 0.5' \
+    -e 'tell application "Terminal"' \
+    -e 'repeat with w in windows' \
+    -e 'repeat with t in tabs of w' \
+    -e "if (tty of t) is \"$current_tty\" then" \
+    -e 'close w' \
+    -e 'return' \
+    -e 'end if' \
+    -e 'end repeat' \
+    -e 'end repeat' \
+    -e 'end tell' >/dev/null 2>&1 &
+}
+
+set +e
+bash "scripts/start.sh"
+status=$?
+schedule_terminal_close
+exit "$status"
+EOF
+  chmod +x "$launcher"
+}
+
 write_windows_launcher() {
   local launcher="$INSTALL_DIR/start.bat"
   cat > "$launcher" <<'EOF'
@@ -208,7 +249,7 @@ create_launcher() {
   local os_name="$1"
   case "$os_name" in
     macos)
-      write_unix_launcher "$INSTALL_DIR/start.command"
+      write_macos_launcher
       say "Launch later by double-clicking: $INSTALL_DIR/start.command" "以后可双击启动：$INSTALL_DIR/start.command" "以後可雙擊啟動：$INSTALL_DIR/start.command"
       ;;
     linux)

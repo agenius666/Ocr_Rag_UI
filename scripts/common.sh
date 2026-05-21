@@ -141,4 +141,89 @@ confirm_yes() {
   [ "$answer" = "YES" ]
 }
 
+write_unix_root_launcher() {
+  local launcher="$1"
+  cat > "$launcher" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+exec bash "scripts/start.sh"
+EOF
+  chmod +x "$launcher"
+}
+
+write_macos_root_launcher() {
+  local launcher="$ROOT_DIR/start.command"
+  cat > "$launcher" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+
+schedule_terminal_close() {
+  if [ "${DOC_RAG_KEEP_TERMINAL_OPEN:-0}" = "1" ]; then
+    return 0
+  fi
+  if [ "$(uname -s 2>/dev/null || true)" != "Darwin" ]; then
+    return 0
+  fi
+  command -v osascript >/dev/null 2>&1 || return 0
+  local current_tty
+  current_tty="$(tty 2>/dev/null || true)"
+  [ -n "$current_tty" ] || return 0
+  nohup osascript \
+    -e 'delay 0.5' \
+    -e 'tell application "Terminal"' \
+    -e 'repeat with w in windows' \
+    -e 'repeat with t in tabs of w' \
+    -e "if (tty of t) is \"$current_tty\" then" \
+    -e 'close w' \
+    -e 'return' \
+    -e 'end if' \
+    -e 'end repeat' \
+    -e 'end repeat' \
+    -e 'end tell' >/dev/null 2>&1 &
+}
+
+set +e
+bash "scripts/start.sh"
+status=$?
+schedule_terminal_close
+exit "$status"
+EOF
+  chmod +x "$launcher"
+}
+
+write_windows_root_launcher() {
+  local launcher="$ROOT_DIR/start.bat"
+  cat > "$launcher" <<'EOF'
+@echo off
+setlocal
+set "PROJECT_DIR=%~dp0"
+set "PROJECT_DIR=%PROJECT_DIR:\=/%"
+set "BASH_EXE="
+if exist "C:\Program Files\Git\bin\bash.exe" set "BASH_EXE=C:\Program Files\Git\bin\bash.exe"
+if not defined BASH_EXE if exist "C:\Program Files\Git\usr\bin\bash.exe" set "BASH_EXE=C:\Program Files\Git\usr\bin\bash.exe"
+if not defined BASH_EXE (
+  echo Git Bash was not found. Please install Git for Windows.
+  echo 未找到 Git Bash，请先安装 Git for Windows。
+  echo 未找到 Git Bash，請先安裝 Git for Windows。
+  pause
+  exit /b 1
+)
+"%BASH_EXE%" -lc "cd \"%PROJECT_DIR%\" && bash scripts/start.sh"
+pause
+EOF
+}
+
+repair_root_launcher() {
+  local os_name
+  os_name="$(detect_os)"
+  case "$os_name" in
+    macos) write_macos_root_launcher ;;
+    linux) write_unix_root_launcher "$ROOT_DIR/start.sh" ;;
+    windows) write_windows_root_launcher ;;
+    *) write_unix_root_launcher "$ROOT_DIR/start.sh" ;;
+  esac
+}
+
 choose_language

@@ -29,6 +29,7 @@ main() {
   if [ -f "start.sh" ]; then
     chmod +x start.sh
   fi
+  repair_root_launcher
 
   say \
     "Dependency installation / repair completed. Start the app from the launcher." \

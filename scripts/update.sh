@@ -36,6 +36,7 @@ main() {
   fi
 
   chmod +x scripts/*.sh
+  repair_root_launcher
   say "Update completed. Please restart the app." "更新完成，请重新启动程序。" "更新完成，請重新啟動程式。"
 }
 

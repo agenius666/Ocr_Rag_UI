@@ -106,6 +106,38 @@ open_browser() {
   fi
 }
 
+wait_for_app_ready() {
+  local max_wait="${DOC_RAG_BROWSER_WAIT_SECONDS:-45}"
+  local extra_delay="${DOC_RAG_BROWSER_DELAY_SECONDS:-3}"
+  local elapsed=0
+
+  if command -v curl >/dev/null 2>&1; then
+    while [ "$elapsed" -lt "$max_wait" ]; do
+      if curl -fsS "$APP_URL/_stcore/health" >/dev/null 2>&1 || curl -fsS "$APP_URL" >/dev/null 2>&1; then
+        sleep "$extra_delay"
+        return 0
+      fi
+      sleep 1
+      elapsed=$((elapsed + 1))
+    done
+    return 1
+  fi
+
+  sleep "${DOC_RAG_BROWSER_FALLBACK_DELAY_SECONDS:-6}"
+  return 0
+}
+
+open_browser_after_ready() {
+  if wait_for_app_ready; then
+    open_browser
+  else
+    say \
+      "The app did not become ready in time. Open manually after Streamlit finishes loading: $APP_URL" \
+      "程序未在等待时间内就绪。请在 Streamlit 加载完成后手动打开：$APP_URL" \
+      "程式未在等待時間內就緒。請在 Streamlit 載入完成後手動開啟：$APP_URL"
+  fi
+}
+
 start_app() {
   local streamlit_cmd
   cd "$ROOT_DIR"
@@ -116,7 +148,7 @@ start_app() {
       "未找到虛擬環境或 Streamlit，請先選擇「安裝/修復依賴」。"
     return 0
   }
-  open_browser
+  open_browser_after_ready &
   "$streamlit_cmd" run app.py --server.address 127.0.0.1 --server.port 8501
 }
 
