@@ -136,8 +136,35 @@ def build_compliance_report_excel(
     return output.getvalue()
 
 
-def render_rag_chat_panel(messages: List[Dict[str, Any]]) -> None:
-    chat_panel = st.container(height=CHAT_PANEL_HEIGHT, border=True)
+def normalize_chat_markdown(content: str) -> str:
+    """Normalize common LLM markdown glitches before rendering.
+    渲染前修正常见的大模型 Markdown 输出问题。
+    """
+    text = str(content or "").replace("\r\n", "\n").replace("\r", "\n")
+
+    # Some local models collapse Markdown table line breaks into "||".
+    # 部分本地模型会把 Markdown 表格换行压缩成 "||"，这里尽量恢复为多行表格。
+    if "||" in text and re.search(r"\|[^\n]+\|\|", text):
+        text = re.sub(r"\s*\|\|\s*", "|\n| ", text)
+
+    normalized_lines = []
+    for line in text.splitlines():
+        if line.strip().startswith("|"):
+            normalized_lines.append(re.sub(r"\s*<br\s*/?>\s*", "；", line, flags=re.I))
+        else:
+            normalized_lines.append(re.sub(r"<br\s*/?>", "\n", line, flags=re.I))
+
+    return "\n".join(normalized_lines).strip()
+
+
+def render_chat_content(content: str) -> None:
+    normalized_content = normalize_chat_markdown(content)
+    if normalized_content:
+        st.markdown(normalized_content)
+
+
+def render_rag_chat_panel(messages: List[Dict[str, Any]], panel_key: Optional[str] = None) -> None:
+    chat_panel = st.container(height=CHAT_PANEL_HEIGHT, border=True, key=panel_key)
     with chat_panel:
         if not messages:
             st.info(
@@ -152,7 +179,7 @@ def render_rag_chat_panel(messages: List[Dict[str, Any]]) -> None:
             role = message.get("role", "assistant")
             with st.chat_message(role):
                 search_results = message.get("search_results") or []
-                st.write(message.get("content", ""))
+                render_chat_content(message.get("content", ""))
                 if role == "assistant" and message.get("mode_label"):
                     st.caption(f"{localized_text('Mode', '模式', '模式')}: {translate_text(message['mode_label'])}")
                 if role == "assistant" and message.get("retrieval_query"):
@@ -185,8 +212,8 @@ def render_rag_chat_panel(messages: List[Dict[str, Any]]) -> None:
                         render_search_results(search_results)
 
 
-def render_compliance_chat_panel(messages: List[Dict[str, Any]]) -> None:
-    chat_panel = st.container(height=CHAT_PANEL_HEIGHT, border=True)
+def render_compliance_chat_panel(messages: List[Dict[str, Any]], panel_key: Optional[str] = None) -> None:
+    chat_panel = st.container(height=CHAT_PANEL_HEIGHT, border=True, key=panel_key)
     with chat_panel:
         if not messages:
             st.info(
@@ -202,7 +229,7 @@ def render_compliance_chat_panel(messages: List[Dict[str, Any]]) -> None:
             with st.chat_message(role):
                 regulation_results = message.get("regulation_results") or []
                 enterprise_results = message.get("enterprise_results") or []
-                st.write(message.get("content", ""))
+                render_chat_content(message.get("content", ""))
                 structured_rows = message.get("structured_rows") or []
                 if role == "assistant" and structured_rows:
                     with st.expander(localized_text("Structured Compliance Analysis", "结构化合规分析表", "結構化合規分析表"), expanded=True):
@@ -440,16 +467,31 @@ def get_session_select_key(session_type: str) -> str:
     return f"{session_type}_session_select"
 
 
+def get_session_revision_key(session_type: str) -> str:
+    return f"{session_type}_session_revision"
+
+
+def bump_chat_session_revision(session_type: str) -> None:
+    revision_key = get_session_revision_key(session_type)
+    st.session_state[revision_key] = int(st.session_state.get(revision_key, 0)) + 1
+
+
+def get_chat_session_revision(session_type: str) -> int:
+    return int(st.session_state.get(get_session_revision_key(session_type), 0))
+
+
 def sync_selected_chat_session(session_type: str) -> None:
     selected_id = st.session_state.get(get_session_select_key(session_type))
     if selected_id:
         set_active_session_id(session_type, selected_id)
+        bump_chat_session_revision(session_type)
 
 
 def create_and_select_chat_session(session_type: str) -> None:
     new_session_id = create_chat_session(session_type)
     set_active_session_id(session_type, new_session_id)
     st.session_state[get_session_select_key(session_type)] = new_session_id
+    bump_chat_session_revision(session_type)
 
 
 def delete_and_select_next_chat_session(session_type: str, session_id: str) -> None:
@@ -458,6 +500,7 @@ def delete_and_select_next_chat_session(session_type: str, session_id: str) -> N
     next_session_id = sessions[0]["id"] if sessions else create_chat_session(session_type)
     set_active_session_id(session_type, next_session_id)
     st.session_state[get_session_select_key(session_type)] = next_session_id
+    bump_chat_session_revision(session_type)
 
 
 def render_chat_session_controls(session_type: str) -> Tuple[str, List[Dict[str, Any]]]:

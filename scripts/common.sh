@@ -194,24 +194,11 @@ EOF
 }
 
 write_windows_root_launcher() {
-  local launcher="$ROOT_DIR/start.bat"
+  local launcher="$ROOT_DIR/start.ps1"
   cat > "$launcher" <<'EOF'
-@echo off
-setlocal
-set "PROJECT_DIR=%~dp0"
-set "PROJECT_DIR=%PROJECT_DIR:\=/%"
-set "BASH_EXE="
-if exist "C:\Program Files\Git\bin\bash.exe" set "BASH_EXE=C:\Program Files\Git\bin\bash.exe"
-if not defined BASH_EXE if exist "C:\Program Files\Git\usr\bin\bash.exe" set "BASH_EXE=C:\Program Files\Git\usr\bin\bash.exe"
-if not defined BASH_EXE (
-  echo Git Bash was not found. Please install Git for Windows.
-  echo 未找到 Git Bash，请先安装 Git for Windows。
-  echo 未找到 Git Bash，請先安裝 Git for Windows。
-  pause
-  exit /b 1
-)
-"%BASH_EXE%" -lc "cd \"%PROJECT_DIR%\" && bash scripts/start.sh"
-pause
+$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$StartScript = Join-Path $Root "scripts\start.ps1"
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $StartScript
 EOF
 }
 

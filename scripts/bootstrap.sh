@@ -263,24 +263,11 @@ EOF
 }
 
 write_windows_launcher() {
-  local launcher="$INSTALL_DIR/start.bat"
+  local launcher="$INSTALL_DIR/start.ps1"
   cat > "$launcher" <<'EOF'
-@echo off
-setlocal
-set "PROJECT_DIR=%~dp0"
-set "PROJECT_DIR=%PROJECT_DIR:\=/%"
-set "BASH_EXE="
-if exist "C:\Program Files\Git\bin\bash.exe" set "BASH_EXE=C:\Program Files\Git\bin\bash.exe"
-if not defined BASH_EXE if exist "C:\Program Files\Git\usr\bin\bash.exe" set "BASH_EXE=C:\Program Files\Git\usr\bin\bash.exe"
-if not defined BASH_EXE (
-  echo Git Bash was not found. Please install Git for Windows.
-  echo 未找到 Git Bash，请先安装 Git for Windows。
-  echo 未找到 Git Bash，請先安裝 Git for Windows。
-  pause
-  exit /b 1
-)
-"%BASH_EXE%" -lc "cd \"%PROJECT_DIR%\" && bash scripts/start.sh"
-pause
+$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$StartScript = Join-Path $Root "scripts\start.ps1"
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $StartScript
 EOF
 }
 
@@ -297,7 +284,7 @@ create_launcher() {
       ;;
     windows)
       write_windows_launcher
-      say "Launch later by double-clicking: $INSTALL_DIR/start.bat" "以后可双击启动：$INSTALL_DIR/start.bat" "以後可雙擊啟動：$INSTALL_DIR/start.bat"
+      say "Launch later with PowerShell: $INSTALL_DIR/start.ps1" "以后可用 PowerShell 启动：$INSTALL_DIR/start.ps1" "以後可用 PowerShell 啟動：$INSTALL_DIR/start.ps1"
       ;;
     *)
       write_unix_launcher "$INSTALL_DIR/start.sh"

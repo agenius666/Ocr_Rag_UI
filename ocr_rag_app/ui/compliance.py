@@ -191,9 +191,13 @@ def render_compliance_tab() -> None:
 
         if st.button("清空合规分析对话", key="clear_compliance_chat"):
             clear_chat_session(compliance_session_id)
+            bump_chat_session_revision("compliance")
             st.rerun()
 
-    render_compliance_chat_panel(compliance_messages)
+    render_compliance_chat_panel(
+        compliance_messages,
+        panel_key=f"compliance_chat_panel_{compliance_session_id}_{get_chat_session_revision('compliance')}",
+    )
 
     with st.form("compliance_chat_form", clear_on_submit=True):
         topic = st.text_area(
@@ -311,7 +315,7 @@ def render_compliance_tab() -> None:
                             clause_by_clause=compliance_clause_by_clause,
                             include_missing_list=compliance_include_missing_list,
                         )
-                        structured_rows = parse_markdown_table(answer)
+                        structured_rows = parse_markdown_table(normalize_chat_markdown(answer))
             except Exception as e:
                 answer = localized_text(
                     f"Compliance analysis failed: {e}",

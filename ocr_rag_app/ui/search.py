@@ -138,9 +138,10 @@ def render_search_tab() -> None:
 
         if st.button("清空当前对话", key="clear_rag_chat"):
             clear_chat_session(rag_session_id)
+            bump_chat_session_revision("rag")
             st.rerun()
 
-    render_rag_chat_panel(rag_messages)
+    render_rag_chat_panel(rag_messages, panel_key=f"rag_chat_panel_{rag_session_id}_{get_chat_session_revision('rag')}")
 
     with st.form("rag_chat_form", clear_on_submit=True):
         question = st.text_area(

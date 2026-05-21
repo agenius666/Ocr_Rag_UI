@@ -1,0 +1,244 @@
+param(
+    [string]$InstallDir = "",
+    [string]$Language = ""
+)
+
+$ErrorActionPreference = "Stop"
+
+$GitHubRepoUrl = $env:DOC_RAG_GITHUB_REPO_URL
+if ([string]::IsNullOrWhiteSpace($GitHubRepoUrl)) {
+    $GitHubRepoUrl = "https://github.com/agenius666/Ocr_Rag_UI.git"
+}
+
+$GiteeRepoUrl = $env:DOC_RAG_GITEE_REPO_URL
+if ([string]::IsNullOrWhiteSpace($GiteeRepoUrl)) {
+    $GiteeRepoUrl = "https://gitee.com/agenius66/ocr_-rag_-ui.git"
+}
+
+$DefaultInstallDir = Join-Path $HOME "DocRAG"
+$Script:DocRagLang = ""
+
+function Normalize-Language {
+    param([string]$Value)
+    $Value = "$Value".Trim()
+    switch -Regex ($Value) {
+        "^(en|EN|english|English)$" { return "en" }
+        "^(zh_CN|zh-cn|zh|cn|CN|简体中文)$" { return "zh_CN" }
+        "^(zh_TW|zh-tw|tw|TW|繁體中文|繁体中文)$" { return "zh_TW" }
+        default { return "" }
+    }
+}
+
+function Choose-Language {
+    $candidate = Normalize-Language $Language
+    if ($candidate) {
+        $Script:DocRagLang = $candidate
+        return
+    }
+
+    Write-Host "Select language / 选择语言 / 選擇語言:"
+    Write-Host "1. English"
+    Write-Host "2. 简体中文"
+    Write-Host "3. 繁體中文"
+    $choice = Read-Host "Please choose [1-3] / 请选择 [1-3]"
+    switch ($choice) {
+        "2" { $Script:DocRagLang = "zh_CN" }
+        "3" { $Script:DocRagLang = "zh_TW" }
+        default { $Script:DocRagLang = "en" }
+    }
+}
+
+function Msg {
+    param([string]$En, [string]$ZhCn, [string]$ZhTw)
+    switch ($Script:DocRagLang) {
+        "en" { return $En }
+        "zh_TW" { return $ZhTw }
+        default { return $ZhCn }
+    }
+}
+
+function Say {
+    param([string]$En, [string]$ZhCn, [string]$ZhTw)
+    Write-Host (Msg $En $ZhCn $ZhTw)
+}
+
+function Fail {
+    param([string]$En, [string]$ZhCn, [string]$ZhTw)
+    Write-Error (Msg $En $ZhCn $ZhTw)
+    exit 1
+}
+
+function Normalize-InstallPath {
+    param([string]$PathValue)
+    $value = ($PathValue | ForEach-Object { "$_".Trim() })
+    if ($value.StartsWith('"') -and $value.EndsWith('"')) {
+        $value = $value.Substring(1, $value.Length - 2)
+    }
+    if ($value.StartsWith("'") -and $value.EndsWith("'")) {
+        $value = $value.Substring(1, $value.Length - 2)
+    }
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        return $DefaultInstallDir
+    }
+    if ($value -eq "~") {
+        return $HOME
+    }
+    if ($value.StartsWith("~/") -or $value.StartsWith("~\")) {
+        return (Join-Path $HOME $value.Substring(2))
+    }
+    return [System.IO.Path]::GetFullPath($value)
+}
+
+function Choose-InstallDir {
+    if ([string]::IsNullOrWhiteSpace($InstallDir)) {
+        Say "Install directory. Press Enter to use the default path:" "请选择安装目录。直接回车使用默认路径：" "請選擇安裝目錄。直接 Enter 使用預設路徑："
+        Write-Host "  $DefaultInstallDir"
+        $inputPath = Read-Host (Msg "Install directory" "安装目录" "安裝目錄")
+        return Normalize-InstallPath $inputPath
+    }
+    return Normalize-InstallPath $InstallDir
+}
+
+function Ensure-Git {
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        return
+    }
+
+    Say "Git was not found. Trying to install Git with winget..." "未找到 Git，正在尝试使用 winget 安装 Git..." "未找到 Git，正在嘗試使用 winget 安裝 Git..."
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Fail "Git is required. Please install Git for Windows or install winget first." "需要 Git。请先安装 Git for Windows，或先安装 winget。" "需要 Git。請先安裝 Git for Windows，或先安裝 winget。"
+    }
+
+    winget install --id Git.Git -e --accept-source-agreements --accept-package-agreements
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        Fail "Git was installed, but this PowerShell session cannot find it yet. Reopen PowerShell and run bootstrap again." "Git 已安装，但当前 PowerShell 会话还找不到它。请重新打开 PowerShell 后再次运行安装命令。" "Git 已安裝，但目前 PowerShell 工作階段還找不到它。請重新開啟 PowerShell 後再次執行安裝命令。"
+    }
+}
+
+function Get-PythonInvocation {
+    $candidates = @(
+        @("py", "-3.13"),
+        @("py", "-3.12"),
+        @("py", "-3.11"),
+        @("python"),
+        @("python3")
+    )
+    foreach ($candidate in $candidates) {
+        $exe = $candidate[0]
+        if (-not (Get-Command $exe -ErrorAction SilentlyContinue)) {
+            continue
+        }
+        $prefix = @()
+        if ($candidate.Count -gt 1) {
+            $prefix = $candidate[1..($candidate.Count - 1)]
+        }
+        try {
+            & $exe @prefix -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)" *> $null
+            if ($LASTEXITCODE -eq 0) {
+                return $candidate
+            }
+        } catch {
+        }
+    }
+    return $null
+}
+
+function Invoke-Python {
+    param([string[]]$Invocation, [string[]]$Arguments)
+    $exe = $Invocation[0]
+    $prefix = @()
+    if ($Invocation.Count -gt 1) {
+        $prefix = $Invocation[1..($Invocation.Count - 1)]
+    }
+    & $exe @prefix @Arguments
+}
+
+function Ensure-Python {
+    $python = Get-PythonInvocation
+    if ($python) {
+        return $python
+    }
+
+    Say "Python 3.11+ was not found. Trying to install Python 3.12 with winget..." "未找到 Python 3.11+，正在尝试使用 winget 安装 Python 3.12..." "未找到 Python 3.11+，正在嘗試使用 winget 安裝 Python 3.12..."
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Fail "Python 3.11 or newer is required. Please install Python manually." "需要 Python 3.11 或更高版本。请手动安装 Python。" "需要 Python 3.11 或更高版本。請手動安裝 Python。"
+    }
+
+    winget install --id Python.Python.3.12 -e --accept-source-agreements --accept-package-agreements
+    $python = Get-PythonInvocation
+    if (-not $python) {
+        Fail "Python was installed, but this PowerShell session cannot find it yet. Reopen PowerShell and run bootstrap again." "Python 已安装，但当前 PowerShell 会话还找不到它。请重新打开 PowerShell 后再次运行安装命令。" "Python 已安裝，但目前 PowerShell 工作階段還找不到它。請重新開啟 PowerShell 後再次執行安裝命令。"
+    }
+    return $python
+}
+
+function Clone-Or-UpdateRepo {
+    param([string]$TargetDir)
+    $parent = Split-Path -Parent $TargetDir
+    if (-not (Test-Path $parent)) {
+        New-Item -ItemType Directory -Path $parent | Out-Null
+    }
+
+    if (-not (Test-Path $TargetDir)) {
+        Say "Cloning project from GitHub..." "正在从 GitHub 拉取项目源码..." "正在從 GitHub 拉取專案原始碼..."
+        git clone $GitHubRepoUrl $TargetDir
+        if ($LASTEXITCODE -ne 0) {
+            Say "GitHub clone failed. Trying Gitee..." "GitHub 拉取失败，尝试 Gitee..." "GitHub 拉取失敗，嘗試 Gitee..."
+            git clone $GiteeRepoUrl $TargetDir
+            if ($LASTEXITCODE -ne 0) {
+                Fail "Both GitHub and Gitee clone failed." "GitHub 和 Gitee 拉取都失败。" "GitHub 和 Gitee 拉取都失敗。"
+            }
+        }
+        return
+    }
+
+    if (Test-Path (Join-Path $TargetDir ".git")) {
+        Say "Existing Git repository found. Pulling latest code..." "发现已有 Git 仓库，正在更新..." "發現已有 Git 倉庫，正在更新..."
+        git -C $TargetDir pull --ff-only
+        return
+    }
+
+    Fail "The target directory exists but is not a Git repository." "目录已存在但不是 Git 仓库，不能自动覆盖。" "目錄已存在但不是 Git 倉庫，不能自動覆蓋。"
+}
+
+function Install-Dependencies {
+    param([string]$TargetDir, [string[]]$PythonInvocation)
+    Set-Location $TargetDir
+    if (-not (Test-Path ".venv")) {
+        Say "Creating virtual environment..." "正在创建虚拟环境..." "正在建立虛擬環境..."
+        Invoke-Python -Invocation $PythonInvocation -Arguments @("-m", "venv", ".venv")
+    }
+
+    $venvPython = Join-Path $TargetDir ".venv\Scripts\python.exe"
+    if (-not (Test-Path $venvPython)) {
+        Fail "Virtual environment creation failed." "虚拟环境创建失败。" "虛擬環境建立失敗。"
+    }
+
+    Say "Upgrading pip..." "正在升级 pip..." "正在升級 pip..."
+    & $venvPython -m pip install --upgrade pip
+    Say "Installing project dependencies. This can take a while..." "正在安装项目依赖，这一步可能需要较长时间..." "正在安裝專案依賴，這一步可能需要較長時間..."
+    & $venvPython -m pip install -r requirements.txt
+    Set-Content -Path (Join-Path $TargetDir ".launcher_lang") -Value $Script:DocRagLang -Encoding UTF8
+}
+
+function Write-RootLauncher {
+    param([string]$TargetDir)
+    $launcher = Join-Path $TargetDir "start.ps1"
+    $content = @'
+$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$StartScript = Join-Path $Root "scripts\start.ps1"
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $StartScript
+'@
+    Set-Content -Path $launcher -Value $content -Encoding UTF8
+    Say "Launch later with: powershell -ExecutionPolicy Bypass -File start.ps1" "以后可启动：右键 start.ps1 选择“使用 PowerShell 运行”，或执行 powershell -ExecutionPolicy Bypass -File start.ps1" "以後可啟動：右鍵 start.ps1 選擇「使用 PowerShell 執行」，或執行 powershell -ExecutionPolicy Bypass -File start.ps1"
+}
+
+Choose-Language
+$ResolvedInstallDir = Choose-InstallDir
+Say "Detected system: Windows PowerShell" "检测到系统：Windows PowerShell" "偵測到系統：Windows PowerShell"
+Ensure-Git
+$PythonInvocation = Ensure-Python
+Clone-Or-UpdateRepo $ResolvedInstallDir
+Install-Dependencies $ResolvedInstallDir $PythonInvocation
+Write-RootLauncher $ResolvedInstallDir
+Say "Installation completed." "安装完成。" "安裝完成。"

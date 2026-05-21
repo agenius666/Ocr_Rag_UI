@@ -19,6 +19,7 @@ env/
 /.launcher_lang
 /start.command
 /start.bat
+/start.ps1
 /start.sh
 
 # Application runtime data

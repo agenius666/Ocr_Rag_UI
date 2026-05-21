@@ -54,7 +54,7 @@ Generate answers through a local LLM endpoint
 
 Recommended:
 
-- Python `3.10` or `3.11`
+- Python `3.11` or newer
 - Windows / macOS / Linux
 - A local LLM service that exposes an OpenAI-compatible API or Anthropic Messages-compatible API
 
@@ -143,10 +143,28 @@ Gitee:
 curl -fsSL https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/scripts/bootstrap.sh | bash
 ```
 
+Windows PowerShell:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercontent.com/agenius666/Ocr_Rag_UI/main/scripts/bootstrap.ps1 | iex
+```
+
+Windows PowerShell Gitee mirror:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/scripts/bootstrap.ps1 | iex
+```
+
 ### Run With Launcher
 
 ```bash
 bash scripts/start.sh
+```
+
+Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 ```
 
 Open:
@@ -176,8 +194,10 @@ ocr_rag_ui/
 ├── update/latest.json      # Release metadata template
 ├── scripts/                # Install, start, update, and uninstall scripts
 │   ├── common.sh           # Shared launcher language and path helpers
-│   ├── bootstrap.sh        # First-time installer for macOS / Linux / Windows Git Bash
-│   ├── start.sh            # Unified launcher and update-check menu
+│   ├── bootstrap.sh        # First-time installer for macOS / Linux
+│   ├── bootstrap.ps1       # First-time installer for Windows PowerShell
+│   ├── start.sh            # macOS / Linux launcher and update-check menu
+│   ├── start.ps1           # Windows PowerShell launcher and update-check menu
 │   ├── install.sh          # Install or repair dependencies
 │   ├── update.sh           # Git pull and dependency sync
 │   └── uninstall.sh        # Cleanup and uninstall menu
@@ -272,7 +292,7 @@ BAAI/bge-m3 生成向量
 
 推荐：
 
-- Python `3.10` 或 `3.11`
+- Python `3.11` 或更高版本
 - Windows / macOS / Linux
 - 一个提供 OpenAI 兼容接口或 Anthropic Messages 兼容接口的本地大模型服务
 
@@ -361,10 +381,28 @@ Gitee：
 curl -fsSL https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/scripts/bootstrap.sh | bash
 ```
 
+Windows PowerShell：
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercontent.com/agenius666/Ocr_Rag_UI/main/scripts/bootstrap.ps1 | iex
+```
+
+Windows PowerShell Gitee 镜像：
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/scripts/bootstrap.ps1 | iex
+```
+
 ### 通过启动器启动
 
 ```bash
 bash scripts/start.sh
+```
+
+Windows PowerShell：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 ```
 
 浏览器打开：
@@ -394,8 +432,10 @@ ocr_rag_ui/
 ├── update/latest.json      # 版本更新信息模板
 ├── scripts/                # 安装、启动、更新、卸载脚本
 │   ├── common.sh           # 启动器语言和路径公共函数
-│   ├── bootstrap.sh        # macOS / Linux / Windows Git Bash 首次安装器
-│   ├── start.sh            # 统一启动器和更新检查菜单
+│   ├── bootstrap.sh        # macOS / Linux 首次安装器
+│   ├── bootstrap.ps1       # Windows PowerShell 首次安装器
+│   ├── start.sh            # macOS / Linux 启动器和更新检查菜单
+│   ├── start.ps1           # Windows PowerShell 启动器和更新检查菜单
 │   ├── install.sh          # 安装或修复依赖
 │   ├── update.sh           # git pull 和依赖同步
 │   └── uninstall.sh        # 清理和卸载菜单
@@ -490,7 +530,7 @@ BAAI/bge-m3 生成向量
 
 建議：
 
-- Python `3.10` 或 `3.11`
+- Python `3.11` 或更高版本
 - Windows / macOS / Linux
 - 一個提供 OpenAI 相容接口或 Anthropic Messages 相容接口的本地大模型服務
 
@@ -579,10 +619,28 @@ Gitee：
 curl -fsSL https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/scripts/bootstrap.sh | bash
 ```
 
+Windows PowerShell：
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercontent.com/agenius666/Ocr_Rag_UI/main/scripts/bootstrap.ps1 | iex
+```
+
+Windows PowerShell Gitee 鏡像：
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/scripts/bootstrap.ps1 | iex
+```
+
 ### 通過啟動器啟動
 
 ```bash
 bash scripts/start.sh
+```
+
+Windows PowerShell：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 ```
 
 瀏覽器打開：
@@ -612,8 +670,10 @@ ocr_rag_ui/
 ├── update/latest.json      # 版本更新資訊模板
 ├── scripts/                # 安裝、啟動、更新、卸載腳本
 │   ├── common.sh           # 啟動器語言和路徑公共函數
-│   ├── bootstrap.sh        # macOS / Linux / Windows Git Bash 首次安裝器
-│   ├── start.sh            # 統一啟動器和更新檢查選單
+│   ├── bootstrap.sh        # macOS / Linux 首次安裝器
+│   ├── bootstrap.ps1       # Windows PowerShell 首次安裝器
+│   ├── start.sh            # macOS / Linux 啟動器和更新檢查選單
+│   ├── start.ps1           # Windows PowerShell 啟動器和更新檢查選單
 │   ├── install.sh          # 安裝或修復依賴
 │   ├── update.sh           # git pull 和依賴同步
 │   └── uninstall.sh        # 清理和卸載選單

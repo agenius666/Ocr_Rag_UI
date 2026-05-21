@@ -975,11 +975,21 @@ def build_labeled_text(parts: List[Tuple[str, str]]) -> str:
     return "\n\n".join(output)
 
 
+def format_indexed_progress(label: str, index: int, total: int) -> str:
+    return localized_text(
+        f"{label} ({index}/{total})",
+        f"{label}（第 {index} 个，共 {total} 个）",
+        f"{label}（第 {index} 個，共 {total} 個）",
+    )
+
+
 def iter_office_embedded_image_sections(
     file_path: str,
     source_type: str,
     media_prefix: str,
     image_preprocess: Optional[Dict[str, Any]] = None,
+    progress_callback: Optional[Callable[[str], None]] = None,
+    progress_label: str = "",
 ) -> Iterator[Dict[str, Any]]:
     """
     Stream embedded Office images through OCR one image at a time.
@@ -992,10 +1002,13 @@ def iter_office_embedded_image_sections(
                 for name in archive.namelist()
                 if name.startswith(media_prefix) and Path(name).suffix.lower() in OCR_IMAGE_EXTENSIONS
             ]
+            total_images = len(media_names)
 
             for image_index, media_name in enumerate(sorted(media_names), start=1):
                 image_path = ""
                 try:
+                    if progress_callback and progress_label:
+                        progress_callback(format_indexed_progress(progress_label, image_index, total_images))
                     image_path = save_zip_member_to_extracted_image(archive, file_path, media_name)
                     text, ocr_boxes = ocr_image_with_boxes(image_path, image_preprocess=image_preprocess)
                 except Exception as e:
@@ -1481,13 +1494,16 @@ def iter_docx_sections(
                     yield row_section
 
         if ocr_enhance:
+            progress_label = localized_text("OCR for embedded Word images", "正在 OCR Word 内嵌图片", "正在 OCR Word 內嵌圖片")
             if progress_callback:
-                progress_callback(localized_text("OCR for embedded Word images", "正在 OCR Word 内嵌图片", "正在 OCR Word 內嵌圖片"))
+                progress_callback(progress_label)
             yield from iter_office_embedded_image_sections(
                 file_path=docx_path,
                 source_type="docx",
                 media_prefix="word/media/",
                 image_preprocess=image_preprocess,
+                progress_callback=progress_callback,
+                progress_label=progress_label,
             )
     finally:
         del doc
@@ -1587,13 +1603,16 @@ def iter_pptx_sections(
             gc.collect()
 
         if ocr_enhance:
+            progress_label = localized_text("OCR for embedded PPT images", "正在 OCR PPT 内嵌图片", "正在 OCR PPT 內嵌圖片")
             if progress_callback:
-                progress_callback(localized_text("OCR for embedded PPT images", "正在 OCR PPT 内嵌图片", "正在 OCR PPT 內嵌圖片"))
+                progress_callback(progress_label)
             yield from iter_office_embedded_image_sections(
                 file_path=pptx_path,
                 source_type="pptx",
                 media_prefix="ppt/media/",
                 image_preprocess=image_preprocess,
+                progress_callback=progress_callback,
+                progress_label=progress_label,
             )
     finally:
         del presentation
@@ -1785,13 +1804,16 @@ def iter_xlsx_sections(
         release_memory_after_file()
 
     if ocr_enhance:
+        progress_label = localized_text("OCR for embedded Excel images", "正在 OCR Excel 内嵌图片", "正在 OCR Excel 內嵌圖片")
         if progress_callback:
-            progress_callback(localized_text("OCR for embedded Excel images", "正在 OCR Excel 内嵌图片", "正在 OCR Excel 內嵌圖片"))
+            progress_callback(progress_label)
         yield from iter_office_embedded_image_sections(
             file_path=xlsx_path,
             source_type="xlsx",
             media_prefix="xl/media/",
             image_preprocess=image_preprocess,
+            progress_callback=progress_callback,
+            progress_label=progress_label,
         )
 
 
