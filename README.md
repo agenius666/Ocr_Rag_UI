@@ -129,18 +129,18 @@ Compatible backends can include OLMX, LM Studio, Ollama, vLLM, or any service ex
 
 ### One-Command Installer
 
-The installer asks for English, Simplified Chinese, or Traditional Chinese at the beginning and saves the launcher language locally.
-
-Gitee:
-
-```bash
-curl -fsSL https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/scripts/bootstrap.sh | bash
-```
+The installer asks for English, Simplified Chinese, or Traditional Chinese at the beginning, then asks for an install directory. Press Enter to use the default path `~/DocRAG`. The selected launcher language is saved locally.
 
 GitHub:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/agenius666/Ocr_Rag_UI/main/scripts/bootstrap.sh | bash
+```
+
+Gitee:
+
+```bash
+curl -fsSL https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/scripts/bootstrap.sh | bash
 ```
 
 ### Run With Launcher
@@ -347,18 +347,18 @@ LLM_THINKING_EXTRA_BODY={}
 
 ### 一条命令安装
 
-安装器一开始会让用户选择英文、简体中文或繁体中文，并把启动器语言保存在本地。
-
-Gitee：
-
-```bash
-curl -fsSL https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/scripts/bootstrap.sh | bash
-```
+安装器一开始会让用户选择英文、简体中文或繁体中文，然后让用户输入安装目录。直接回车会使用默认路径 `~/DocRAG`，并把启动器语言保存在本地。
 
 GitHub：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/agenius666/Ocr_Rag_UI/main/scripts/bootstrap.sh | bash
+```
+
+Gitee：
+
+```bash
+curl -fsSL https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/scripts/bootstrap.sh | bash
 ```
 
 ### 通过启动器启动
@@ -565,18 +565,18 @@ LLM_THINKING_EXTRA_BODY={}
 
 ### 一條命令安裝
 
-安裝器一開始會讓使用者選擇英文、簡體中文或繁體中文，並把啟動器語言保存在本地。
-
-Gitee：
-
-```bash
-curl -fsSL https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/scripts/bootstrap.sh | bash
-```
+安裝器一開始會讓使用者選擇英文、簡體中文或繁體中文，然後讓使用者輸入安裝目錄。直接 Enter 會使用預設路徑 `~/DocRAG`，並把啟動器語言保存在本地。
 
 GitHub：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/agenius666/Ocr_Rag_UI/main/scripts/bootstrap.sh | bash
+```
+
+Gitee：
+
+```bash
+curl -fsSL https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/scripts/bootstrap.sh | bash
 ```
 
 ### 通過啟動器啟動

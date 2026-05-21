@@ -3,7 +3,8 @@ set -euo pipefail
 
 GITHUB_REPO_URL="${DOC_RAG_GITHUB_REPO_URL:-https://github.com/agenius666/Ocr_Rag_UI.git}"
 GITEE_REPO_URL="${DOC_RAG_GITEE_REPO_URL:-https://gitee.com/agenius66/ocr_-rag_-ui.git}"
-INSTALL_DIR="${DOC_RAG_INSTALL_DIR:-$HOME/DocRAG}"
+DEFAULT_INSTALL_DIR="$HOME/DocRAG"
+INSTALL_DIR="${DOC_RAG_INSTALL_DIR:-}"
 DOC_RAG_LANG="${DOC_RAG_LANG:-}"
 
 normalize_language() {
@@ -32,6 +33,39 @@ choose_language() {
     3) DOC_RAG_LANG="zh_TW" ;;
     *) DOC_RAG_LANG="en" ;;
   esac
+}
+
+expand_user_path() {
+  local value="$1"
+  case "$value" in
+    "~") printf '%s\n' "$HOME" ;;
+    "~/"*) printf '%s/%s\n' "$HOME" "${value#~/}" ;;
+    *) printf '%s\n' "$value" ;;
+  esac
+}
+
+choose_install_dir() {
+  local input_dir
+  if [ -n "$INSTALL_DIR" ]; then
+    INSTALL_DIR="$(expand_user_path "$INSTALL_DIR")"
+    return
+  fi
+
+  printf '%s\n' "$(msg \
+    "Install directory. Press Enter to use the default path:" \
+    "请选择安装目录。直接回车使用默认路径：" \
+    "請選擇安裝目錄。直接 Enter 使用預設路徑：")"
+  printf '  %s\n' "$DEFAULT_INSTALL_DIR"
+  printf '%s' "$(msg \
+    "Install directory: " \
+    "安装目录：" \
+    "安裝目錄：")"
+  read -r input_dir
+  if [ -z "${input_dir:-}" ]; then
+    INSTALL_DIR="$DEFAULT_INSTALL_DIR"
+  else
+    INSTALL_DIR="$(expand_user_path "$input_dir")"
+  fi
 }
 
 msg() {
@@ -88,11 +122,12 @@ PY
 }
 
 clone_or_update_repo() {
+  mkdir -p "$(dirname "$INSTALL_DIR")"
   if [ ! -d "$INSTALL_DIR" ]; then
     say "Cloning project to: $INSTALL_DIR" "正在拉取项目源码到：$INSTALL_DIR" "正在拉取專案原始碼到：$INSTALL_DIR"
-    if ! git clone "$GITEE_REPO_URL" "$INSTALL_DIR"; then
-      say "Gitee clone failed. Trying GitHub..." "Gitee 拉取失败，尝试 GitHub..." "Gitee 拉取失敗，嘗試 GitHub..."
-      git clone "$GITHUB_REPO_URL" "$INSTALL_DIR"
+    if ! git clone "$GITHUB_REPO_URL" "$INSTALL_DIR"; then
+      say "GitHub clone failed. Trying Gitee..." "GitHub 拉取失败，尝试 Gitee..." "GitHub 拉取失敗，嘗試 Gitee..."
+      git clone "$GITEE_REPO_URL" "$INSTALL_DIR"
     fi
     return
   fi
@@ -194,6 +229,7 @@ create_launcher() {
 main() {
   local os_name
   choose_language
+  choose_install_dir
   os_name="$(detect_os)"
   say "Detected system: $os_name" "检测到系统：$os_name" "偵測到系統：$os_name"
   require_command git

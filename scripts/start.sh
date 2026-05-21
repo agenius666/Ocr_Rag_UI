@@ -5,8 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/common.sh"
 
-UPDATE_GITEE_URL="${DOC_RAG_UPDATE_GITEE_URL:-https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/update/latest.json}"
 UPDATE_GITHUB_URL="${DOC_RAG_UPDATE_GITHUB_URL:-https://raw.githubusercontent.com/agenius666/Ocr_Rag_UI/main/update/latest.json}"
+UPDATE_GITEE_URL="${DOC_RAG_UPDATE_GITEE_URL:-https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/update/latest.json}"
 APP_URL="http://127.0.0.1:8501"
 
 version_gt() {
@@ -33,10 +33,10 @@ PY
 download_latest_json() {
   local target="$1"
   : > "$target"
-  if [ -n "$UPDATE_GITEE_URL" ] && curl -fsSL "$UPDATE_GITEE_URL" -o "$target"; then
+  if [ -n "$UPDATE_GITHUB_URL" ] && curl -fsL "$UPDATE_GITHUB_URL" -o "$target" 2>/dev/null; then
     return 0
   fi
-  if [ -n "$UPDATE_GITHUB_URL" ] && curl -fsSL "$UPDATE_GITHUB_URL" -o "$target"; then
+  if [ -n "$UPDATE_GITEE_URL" ] && curl -fsL "$UPDATE_GITEE_URL" -o "$target" 2>/dev/null; then
     return 0
   fi
   return 1
