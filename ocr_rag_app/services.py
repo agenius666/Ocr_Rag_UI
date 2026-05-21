@@ -29,7 +29,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import fitz
@@ -120,6 +120,22 @@ OCR_PDF_DPI = 120
 OCR_MAX_PAGE_SIDE_PIXELS = 1800
 OCR_TILE_MAX_SIDE_PIXELS = 3200
 OCR_TILE_OVERLAP_PIXELS = 80
+OCR_BOX_METADATA_LIMIT = 300
+IMAGE_PREPROCESS_MODE_OPTIONS = {
+    "自动（推荐）": "auto",
+    "低内存": "low",
+    "均衡": "balanced",
+    "高精度": "high",
+    "关闭图片预处理": "off",
+}
+DEFAULT_IMAGE_PREPROCESS_MODE_LABEL = "自动（推荐）"
+IMAGE_PREPROCESS_PRESETS = {
+    "auto": {"max_side": 2400, "max_pixels": 5_000_000, "jpeg_quality": 90, "grayscale": True},
+    "low": {"max_side": 1800, "max_pixels": 3_000_000, "jpeg_quality": 88, "grayscale": True},
+    "balanced": {"max_side": 2400, "max_pixels": 5_000_000, "jpeg_quality": 90, "grayscale": True},
+    "high": {"max_side": 3200, "max_pixels": 8_000_000, "jpeg_quality": 95, "grayscale": False},
+    "off": {"max_side": 0, "max_pixels": 0, "jpeg_quality": 95, "grayscale": False},
+}
 DEFAULT_PADDLEOCR_MODEL_LABEL = "Server（高精度，占用更高）"
 DEFAULT_UI_LANGUAGE = "en"
 
@@ -1642,6 +1658,12 @@ def reset_app_state_database() -> None:
     set_bool_config("ppt_visual_ocr", True)
     set_bool_config("skip_large_excel", False)
     set_config_value("excel_row_limit", 100000)
+    set_config_value("image_preprocess_mode_label", DEFAULT_IMAGE_PREPROCESS_MODE_LABEL)
+    set_bool_config("image_preprocess_custom", False)
+    set_config_value("image_preprocess_max_side", IMAGE_PREPROCESS_PRESETS["balanced"]["max_side"])
+    set_config_value("image_preprocess_max_pixels", IMAGE_PREPROCESS_PRESETS["balanced"]["max_pixels"])
+    set_config_value("image_preprocess_jpeg_quality", IMAGE_PREPROCESS_PRESETS["balanced"]["jpeg_quality"])
+    set_bool_config("image_preprocess_grayscale", IMAGE_PREPROCESS_PRESETS["balanced"]["grayscale"])
     apply_model_cache_environment()
     for key in [
         "llm_config",
@@ -1656,6 +1678,12 @@ def reset_app_state_database() -> None:
         "background_ingest_input",
         "skip_large_excel_input",
         "excel_row_limit_input",
+        "image_preprocess_mode_label",
+        "image_preprocess_custom",
+        "image_preprocess_max_side",
+        "image_preprocess_max_pixels",
+        "image_preprocess_jpeg_quality",
+        "image_preprocess_grayscale",
         "upload_pdf_ocr_mode_label",
         "paddleocr_model_label",
         "auto_install_libreoffice",

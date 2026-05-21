@@ -68,7 +68,7 @@ def split_sections(
 
 
 def iter_section_chunks(
-    sections: List[Dict[str, Any]],
+    sections: Iterable[Dict[str, Any]],
     chunk_size: int,
     overlap: int,
 ):
@@ -120,7 +120,7 @@ def flush_vector_batch(
 def add_document_to_vector_store(
     file_name: str,
     file_sha256: str,
-    sections: List[Dict[str, Any]],
+    sections: Iterable[Dict[str, Any]],
     chunk_size: int,
     overlap: int,
     doc_category: str,
@@ -158,6 +158,107 @@ def add_document_to_vector_store(
 
     total_count += flush_vector_batch(chunks, ids, metadatas)
     return total_count
+
+
+def add_document_to_vector_store_with_optional_replace(
+    file_name: str,
+    file_sha256: str,
+    sections: Iterable[Dict[str, Any]],
+    chunk_size: int,
+    overlap: int,
+    doc_category: str,
+    doc_label: str,
+    replace_changed_same_name: bool = True,
+) -> Tuple[int, int]:
+    """
+    Stream sections into Qdrant and only replace old chunks when the first new chunk is ready.
+    流式写入 Qdrant，并且只在第一个新 chunk 确认可写时删除旧版本，避免空解析误删旧资料。
+    """
+    doc_id = str(uuid.uuid4())
+    chunks = []
+    ids = []
+    metadatas = []
+    total_count = 0
+    deleted_chunks = 0
+    replacement_checked = False
+
+    for index, (chunk, section_metadata) in enumerate(
+        iter_section_chunks(sections, chunk_size=chunk_size, overlap=overlap)
+    ):
+        if not replacement_checked:
+            deleted_chunks, _deleted_records = replace_existing_same_name_if_needed(
+                file_name,
+                file_sha256,
+                enabled=replace_changed_same_name,
+            )
+            replacement_checked = True
+
+        chunks.append(chunk)
+        ids.append(str(uuid.uuid4()))
+        metadatas.append(
+            clean_metadata(
+                {
+                    **section_metadata,
+                    "doc_id": doc_id,
+                    "file_sha256": file_sha256,
+                    "file_name": file_name,
+                    "doc_label": doc_label or file_name,
+                    "doc_category": doc_category,
+                    "doc_category_name": DOC_CATEGORY_NAMES.get(doc_category, doc_category),
+                    "chunk_index": index,
+                    "embedding_model": EMBEDDING_MODEL_NAME,
+                }
+            )
+        )
+
+        if len(chunks) >= VECTOR_ADD_BATCH_SIZE:
+            total_count += flush_vector_batch(chunks, ids, metadatas)
+
+    total_count += flush_vector_batch(chunks, ids, metadatas)
+    return total_count, deleted_chunks
+
+
+def parse_and_add_document_to_vector_store(
+    file_path: str,
+    file_name: str,
+    file_sha256: str,
+    chunk_size: int,
+    overlap: int,
+    doc_category: str,
+    doc_label: str,
+    replace_changed_same_name: bool = True,
+    ocr_enhance: bool = True,
+    pdf_ocr_mode: str = "smart",
+    ppt_visual_ocr: bool = True,
+    image_preprocess: Optional[Dict[str, Any]] = None,
+    progress_callback: Optional[Callable[[str], None]] = None,
+) -> Tuple[int, int]:
+    """
+    Parse and ingest a document as a streaming workflow.
+    以流式工作流解析并入库，避免把整份文档的 sections 一次性攒在内存里。
+    """
+    sections = iter_document_sections(
+        file_path,
+        ocr_enhance=ocr_enhance,
+        pdf_ocr_mode=pdf_ocr_mode,
+        ppt_visual_ocr=ppt_visual_ocr,
+        image_preprocess=image_preprocess,
+        progress_callback=progress_callback,
+    )
+    try:
+        return add_document_to_vector_store_with_optional_replace(
+            file_name=file_name,
+            file_sha256=file_sha256,
+            sections=sections,
+            chunk_size=chunk_size,
+            overlap=overlap,
+            doc_category=doc_category,
+            doc_label=doc_label,
+            replace_changed_same_name=replace_changed_same_name,
+        )
+    finally:
+        del sections
+        release_memory_after_file()
 
 
 def run_background_ingest_task(
@@ -272,35 +373,21 @@ def run_background_ingest_task(
                     sync_task(file_index, relative_name, message)
                     continue
 
-                sections = extract_document_sections(
-                    file_path,
-                    ocr_enhance=bool(settings.get("ocr_enhance", True)),
-                    pdf_ocr_mode=str(settings.get("pdf_ocr_mode", "smart")),
-                    ppt_visual_ocr=bool(settings.get("ppt_visual_ocr", True)),
-                    progress_callback=extraction_progress,
-                )
-
                 wait_if_task_paused_or_cancelled(task_id)
-                if not sections_have_text(sections):
-                    skipped_count += 1
-                    message = localized_text("No valid text was extracted", "没有解析到有效文字", "沒有解析到有效文字")
-                    record_ingest_task_item(task_id, relative_name, "skipped", message, file_sha256=file_sha256)
-                    sync_task(file_index, relative_name, message)
-                    continue
-
-                deleted_chunks, _deleted_records = replace_existing_same_name_if_needed(
-                    relative_name,
-                    file_sha256,
-                    enabled=bool(settings.get("replace_changed_same_name", True)),
-                )
-                chunk_count = add_document_to_vector_store(
+                chunk_count, deleted_chunks = parse_and_add_document_to_vector_store(
+                    file_path=file_path,
                     file_name=relative_name,
                     file_sha256=file_sha256,
-                    sections=sections,
                     chunk_size=int(settings.get("chunk_size", 600)),
                     overlap=int(settings.get("overlap", 100)),
                     doc_category=str(settings.get("doc_category", "general")),
                     doc_label=str(settings.get("doc_label") or relative_name),
+                    replace_changed_same_name=bool(settings.get("replace_changed_same_name", True)),
+                    ocr_enhance=bool(settings.get("ocr_enhance", True)),
+                    pdf_ocr_mode=str(settings.get("pdf_ocr_mode", "smart")),
+                    ppt_visual_ocr=bool(settings.get("ppt_visual_ocr", True)),
+                    image_preprocess=dict(settings.get("image_preprocess") or {}),
+                    progress_callback=extraction_progress,
                 )
                 if chunk_count > 0:
                     success_count += 1

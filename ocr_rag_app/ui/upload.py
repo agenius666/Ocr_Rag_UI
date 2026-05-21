@@ -127,6 +127,126 @@ def render_upload_tab() -> None:
         ),
     )
     set_bool_config("ppt_visual_ocr", ppt_visual_ocr)
+
+    image_preprocess_mode_labels = list(IMAGE_PREPROCESS_MODE_OPTIONS.keys())
+    saved_image_preprocess_mode_label = get_config_value(
+        "image_preprocess_mode_label",
+        DEFAULT_IMAGE_PREPROCESS_MODE_LABEL,
+    )
+    if saved_image_preprocess_mode_label not in image_preprocess_mode_labels:
+        saved_image_preprocess_mode_label = DEFAULT_IMAGE_PREPROCESS_MODE_LABEL
+    image_preprocess_mode_label = st.selectbox(
+        localized_text("Image OCR Preprocessing", "图片 OCR 预处理", "圖片 OCR 預處理"),
+        image_preprocess_mode_labels,
+        index=image_preprocess_mode_labels.index(saved_image_preprocess_mode_label),
+        key="image_preprocess_mode_label",
+        help=localized_text(
+            "Controls OCR image resolution before recognition. Original files are not modified.",
+            "识别前控制图片分辨率以降低 OCR 内存占用；原始文件不会被修改。",
+            "識別前控制圖片解析度以降低 OCR 記憶體占用；原始文件不會被修改。",
+        ),
+    )
+    set_config_value("image_preprocess_mode_label", image_preprocess_mode_label)
+    image_preprocess_mode = IMAGE_PREPROCESS_MODE_OPTIONS[image_preprocess_mode_label]
+    image_preprocess_preset = IMAGE_PREPROCESS_PRESETS[image_preprocess_mode]
+    st.caption(
+        localized_text(
+            "Recommended for phone photos, scanned images, PDF page OCR, PPT rasterization OCR, and Office embedded images.",
+            "适用于手机照片、扫描图片、PDF 页面 OCR、PPT 栅格化 OCR 和 Office 内嵌图片。",
+            "適用於手機照片、掃描圖片、PDF 頁面 OCR、PPT 柵格化 OCR 和 Office 內嵌圖片。",
+        )
+    )
+    with st.expander(localized_text("Advanced Image Parameters", "图片预处理高级参数", "圖片預處理進階參數"), expanded=False):
+        image_preprocess_custom = st.checkbox(
+            localized_text("Use custom image preprocessing parameters", "使用自定义图片预处理参数", "使用自訂圖片預處理參數"),
+            value=get_bool_config("image_preprocess_custom", False),
+            key="image_preprocess_custom",
+            disabled=image_preprocess_mode == "off",
+            help=localized_text(
+                "When disabled, the selected mode preset is used.",
+                "关闭时使用所选模式的内置参数。",
+                "關閉時使用所選模式的內建參數。",
+            ),
+        )
+        set_bool_config("image_preprocess_custom", image_preprocess_custom)
+        adv_col1, adv_col2 = st.columns(2)
+        with adv_col1:
+            image_preprocess_max_side = int(
+                st.number_input(
+                    localized_text("Max Long Side (px)", "最长边上限（像素）", "最長邊上限（像素）"),
+                    min_value=800,
+                    max_value=6000,
+                    value=min(max(get_int_config("image_preprocess_max_side", image_preprocess_preset["max_side"] or 2400), 800), 6000),
+                    step=100,
+                    key="image_preprocess_max_side",
+                    disabled=(not image_preprocess_custom) or image_preprocess_mode == "off",
+                )
+            )
+            image_preprocess_max_pixels = int(
+                st.number_input(
+                    localized_text("Max Pixels", "最大像素数", "最大像素數"),
+                    min_value=1_000_000,
+                    max_value=30_000_000,
+                    value=min(max(get_int_config("image_preprocess_max_pixels", image_preprocess_preset["max_pixels"] or 5_000_000), 1_000_000), 30_000_000),
+                    step=500_000,
+                    key="image_preprocess_max_pixels",
+                    disabled=(not image_preprocess_custom) or image_preprocess_mode == "off",
+                )
+            )
+        with adv_col2:
+            image_preprocess_jpeg_quality = int(
+                st.slider(
+                    localized_text("JPEG Quality", "JPEG 质量", "JPEG 品質"),
+                    min_value=60,
+                    max_value=100,
+                    value=min(max(get_int_config("image_preprocess_jpeg_quality", image_preprocess_preset["jpeg_quality"]), 60), 100),
+                    step=1,
+                    key="image_preprocess_jpeg_quality",
+                    disabled=(not image_preprocess_custom) or image_preprocess_mode == "off",
+                )
+            )
+            image_preprocess_grayscale = st.checkbox(
+                localized_text("Convert to grayscale before OCR", "OCR 前转为灰度图", "OCR 前轉為灰階圖"),
+                value=get_bool_config("image_preprocess_grayscale", bool(image_preprocess_preset["grayscale"])),
+                key="image_preprocess_grayscale",
+                disabled=(not image_preprocess_custom) or image_preprocess_mode == "off",
+            )
+        set_config_value("image_preprocess_max_side", image_preprocess_max_side)
+        set_config_value("image_preprocess_max_pixels", image_preprocess_max_pixels)
+        set_config_value("image_preprocess_jpeg_quality", image_preprocess_jpeg_quality)
+        set_bool_config("image_preprocess_grayscale", image_preprocess_grayscale)
+        if image_preprocess_mode != "off":
+            effective = dict(image_preprocess_preset)
+            if image_preprocess_custom:
+                effective.update(
+                    {
+                        "max_side": image_preprocess_max_side,
+                        "max_pixels": image_preprocess_max_pixels,
+                        "jpeg_quality": image_preprocess_jpeg_quality,
+                        "grayscale": image_preprocess_grayscale,
+                    }
+                )
+            st.caption(
+                localized_text("Effective parameters: ", "当前生效参数：", "目前生效參數：")
+                + localized_text("max side ", "最长边 ", "最長邊 ")
+                + f"{effective['max_side']} px; "
+                + localized_text("max pixels ", "最大像素 ", "最大像素 ")
+                + f"{effective['max_pixels']}; "
+                + localized_text("JPEG quality ", "JPEG 质量 ", "JPEG 品質 ")
+                + f"{effective['jpeg_quality']}; "
+                + localized_text("grayscale ", "灰度 ", "灰階 ")
+                + ("on" if effective["grayscale"] else "off")
+            )
+
+    image_preprocess = {
+        "mode": image_preprocess_mode,
+        "custom": image_preprocess_custom,
+        "max_side": image_preprocess_max_side,
+        "max_pixels": image_preprocess_max_pixels,
+        "jpeg_quality": image_preprocess_jpeg_quality,
+        "grayscale": image_preprocess_grayscale,
+    }
+
     auto_unload_models_after_ingest = st.checkbox(
         "入库完成后自动释放 OCR / BGE-M3 模型缓存",
         value=get_bool_config("auto_unload_models_after_ingest", False),
@@ -353,6 +473,7 @@ def render_upload_tab() -> None:
                         "ocr_enhance": ocr_enhance,
                         "pdf_ocr_mode": pdf_ocr_mode,
                         "ppt_visual_ocr": ppt_visual_ocr,
+                        "image_preprocess": image_preprocess,
                         "replace_changed_same_name": replace_changed_same_name,
                         "skip_large_excel": skip_large_excel,
                         "excel_row_limit": excel_row_limit,
@@ -542,15 +663,23 @@ def render_upload_tab() -> None:
                         release_memory_after_file()
                         continue
 
-                    sections = extract_document_sections(
-                        file_path,
+                    chunk_count, deleted_chunks = parse_and_add_document_to_vector_store(
+                        file_path=file_path,
+                        file_name=relative_name,
+                        file_sha256=file_sha256,
+                        chunk_size=chunk_size,
+                        overlap=overlap,
+                        doc_category=doc_category,
+                        doc_label=doc_label or relative_name,
+                        replace_changed_same_name=replace_changed_same_name,
                         ocr_enhance=ocr_enhance,
                         pdf_ocr_mode=pdf_ocr_mode,
                         ppt_visual_ocr=ppt_visual_ocr,
+                        image_preprocess=image_preprocess,
                         progress_callback=extraction_progress,
                     )
 
-                    if not sections_have_text(sections):
+                    if chunk_count <= 0:
                         skipped_rows.append(
                             {
                                 source_label("source_file"): relative_name,
@@ -569,11 +698,6 @@ def render_upload_tab() -> None:
                             file_sha256=file_sha256,
                         )
                     else:
-                        deleted_chunks, _deleted_records = replace_existing_same_name_if_needed(
-                            relative_name,
-                            file_sha256,
-                            enabled=replace_changed_same_name,
-                        )
                         if deleted_chunks:
                             status_box.info(
                                 localized_text(
@@ -582,15 +706,6 @@ def render_upload_tab() -> None:
                                     f"已替換舊版本：{relative_name}（刪除 {deleted_chunks} 個舊 chunk）",
                                 )
                             )
-                        chunk_count = add_document_to_vector_store(
-                            file_name=relative_name,
-                            file_sha256=file_sha256,
-                            sections=sections,
-                            chunk_size=chunk_size,
-                            overlap=overlap,
-                            doc_category=doc_category,
-                            doc_label=doc_label or relative_name,
-                        )
                         if chunk_count > 0:
                             record_ingested_file(
                                 file_sha256=file_sha256,
@@ -618,28 +733,6 @@ def render_upload_tab() -> None:
                                     f"入庫成功，寫入 {chunk_count} 個 chunk",
                                 ),
                                 chunk_count=chunk_count,
-                                file_sha256=file_sha256,
-                            )
-                        else:
-                            skipped_rows.append(
-                                {
-                                    source_label("source_file"): relative_name,
-                                    localized_text("Reason", "原因", "原因"): localized_text(
-                                        "Parsed successfully, but no ingestible chunks were produced",
-                                        "解析成功但没有可入库 chunk",
-                                        "解析成功但沒有可入庫 chunk",
-                                    ),
-                                }
-                            )
-                            record_ingest_task_item(
-                                task_id,
-                                relative_name,
-                                "skipped",
-                                localized_text(
-                                    "Parsed successfully, but no ingestible chunks were produced",
-                                    "解析成功但没有可入库 chunk",
-                                    "解析成功但沒有可入庫 chunk",
-                                ),
                                 file_sha256=file_sha256,
                             )
                 except Exception as e:

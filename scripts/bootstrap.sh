@@ -44,10 +44,48 @@ expand_user_path() {
   esac
 }
 
+trim_path_input() {
+  printf '%s' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+strip_wrapping_quotes() {
+  local value="$1"
+  case "$value" in
+    \"*\") value="${value#\"}"; value="${value%\"}" ;;
+    \'*\') value="${value#\'}"; value="${value%\'}" ;;
+  esac
+  printf '%s\n' "$value"
+}
+
+normalize_install_dir() {
+  local value="$1"
+  local drive
+  local rest
+
+  value="$(trim_path_input "$value")"
+  value="$(strip_wrapping_quotes "$value")"
+  value="$(trim_path_input "$value")"
+  value="$(expand_user_path "$value")"
+
+  if [ "$(detect_os)" = "windows" ]; then
+    value="${value//\\//}"
+    if [[ "$value" =~ ^([A-Za-z]):/(.*)$ ]]; then
+      drive="$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')"
+      rest="${BASH_REMATCH[2]}"
+      value="/${drive}/${rest}"
+    fi
+  fi
+
+  printf '%s\n' "$value"
+}
+
 choose_install_dir() {
   local input_dir
   if [ -n "$INSTALL_DIR" ]; then
-    INSTALL_DIR="$(expand_user_path "$INSTALL_DIR")"
+    INSTALL_DIR="$(normalize_install_dir "$INSTALL_DIR")"
+    if [ -z "$INSTALL_DIR" ]; then
+      INSTALL_DIR="$DEFAULT_INSTALL_DIR"
+    fi
     return
   fi
 
@@ -61,10 +99,11 @@ choose_install_dir() {
     "安装目录：" \
     "安裝目錄：")"
   read -r input_dir
-  if [ -z "${input_dir:-}" ]; then
+  input_dir="$(normalize_install_dir "${input_dir:-}")"
+  if [ -z "$input_dir" ]; then
     INSTALL_DIR="$DEFAULT_INSTALL_DIR"
   else
-    INSTALL_DIR="$(expand_user_path "$input_dir")"
+    INSTALL_DIR="$input_dir"
   fi
 }
 
