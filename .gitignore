@@ -16,6 +16,10 @@ env/
 # Local secrets and runtime config
 .env
 *.local
+/.launcher_lang
+/start.command
+/start.bat
+/start.sh
 
 # Application runtime data
 uploads/

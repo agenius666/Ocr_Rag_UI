@@ -4,6 +4,8 @@ sentence-transformers
 paddleocr
 paddlepaddle
 pymupdf
+pymupdf-layout
+pymupdf4llm
 pillow
 openai
 python-dotenv

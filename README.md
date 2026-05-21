@@ -127,39 +127,32 @@ You can also configure and save these values in the app under `Settings`.
 
 Compatible backends can include OLMX, LM Studio, Ollama, vLLM, or any service exposing an OpenAI-compatible `/v1/chat/completions` endpoint or an Anthropic-compatible `/v1/messages` endpoint.
 
-### One-Click Installer
+### One-Command Installer
 
-`install.sh` provides a guided installer with English, Simplified Chinese, and Traditional Chinese prompts. Replace the placeholder GitHub and Gitee URLs at the top of the script before distributing it:
+The installer asks for English, Simplified Chinese, or Traditional Chinese at the beginning and saves the launcher language locally.
 
-```bash
-chmod +x install.sh
-./install.sh
-```
-
-### Run
+Gitee:
 
 ```bash
-streamlit run app.py
+curl -fsSL https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/scripts/bootstrap.sh | bash
 ```
 
-If `streamlit` is not found, run it from the virtual environment:
-
-macOS / Linux:
+GitHub:
 
 ```bash
-./.venv/bin/streamlit run app.py
+curl -fsSL https://raw.githubusercontent.com/agenius666/Ocr_Rag_UI/main/scripts/bootstrap.sh | bash
 ```
 
-Windows:
+### Run With Launcher
 
-```powershell
-.venv\Scripts\streamlit run app.py
+```bash
+bash scripts/start.sh
 ```
 
 Open:
 
 ```text
-http://localhost:8501
+http://127.0.0.1:8501
 ```
 
 ### How To Use
@@ -179,7 +172,15 @@ http://localhost:8501
 ```text
 ocr_rag_ui/
 ├── app.py                  # Streamlit startup entry
-├── install.sh              # Guided installer with GitHub/Gitee placeholder URLs
+├── VERSION                 # Local application version
+├── update/latest.json      # Release metadata template
+├── scripts/                # Install, start, update, and uninstall scripts
+│   ├── common.sh           # Shared launcher language and path helpers
+│   ├── bootstrap.sh        # First-time installer for macOS / Linux / Windows Git Bash
+│   ├── start.sh            # Unified launcher and update-check menu
+│   ├── install.sh          # Install or repair dependencies
+│   ├── update.sh           # Git pull and dependency sync
+│   └── uninstall.sh        # Cleanup and uninstall menu
 ├── ocr_rag_app/
 │   ├── __init__.py
 │   ├── main.py             # Tab assembly and startup wiring
@@ -344,39 +345,32 @@ LLM_THINKING_EXTRA_BODY={}
 
 本地模型服务可以提供 OpenAI 兼容 `/v1/chat/completions` 接口，也可以提供 Anthropic 兼容 `/v1/messages` 接口，例如 OLMX、LM Studio、Ollama、vLLM 等。
 
-### 一键安装脚本
+### 一条命令安装
 
-`install.sh` 提供英文、简体中文、繁体中文交互提示。分发前请先把脚本顶部的 GitHub / Gitee 示例地址替换为你的真实仓库地址：
+安装器一开始会让用户选择英文、简体中文或繁体中文，并把启动器语言保存在本地。
 
-```bash
-chmod +x install.sh
-./install.sh
-```
-
-### 启动
+Gitee：
 
 ```bash
-streamlit run app.py
+curl -fsSL https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/scripts/bootstrap.sh | bash
 ```
 
-如果系统找不到 `streamlit`，使用虚拟环境里的命令：
-
-macOS / Linux：
+GitHub：
 
 ```bash
-./.venv/bin/streamlit run app.py
+curl -fsSL https://raw.githubusercontent.com/agenius666/Ocr_Rag_UI/main/scripts/bootstrap.sh | bash
 ```
 
-Windows：
+### 通过启动器启动
 
-```powershell
-.venv\Scripts\streamlit run app.py
+```bash
+bash scripts/start.sh
 ```
 
 浏览器打开：
 
 ```text
-http://localhost:8501
+http://127.0.0.1:8501
 ```
 
 ### 使用流程
@@ -396,7 +390,15 @@ http://localhost:8501
 ```text
 ocr_rag_ui/
 ├── app.py                  # Streamlit 启动入口
-├── install.sh              # 带 GitHub/Gitee 示例地址的一键安装脚本
+├── VERSION                 # 本地版本号
+├── update/latest.json      # 版本更新信息模板
+├── scripts/                # 安装、启动、更新、卸载脚本
+│   ├── common.sh           # 启动器语言和路径公共函数
+│   ├── bootstrap.sh        # macOS / Linux / Windows Git Bash 首次安装器
+│   ├── start.sh            # 统一启动器和更新检查菜单
+│   ├── install.sh          # 安装或修复依赖
+│   ├── update.sh           # git pull 和依赖同步
+│   └── uninstall.sh        # 清理和卸载菜单
 ├── ocr_rag_app/
 │   ├── __init__.py
 │   ├── main.py             # Tab 组装和启动编排
@@ -561,39 +563,32 @@ LLM_THINKING_EXTRA_BODY={}
 
 本地模型服務可以提供 OpenAI 相容 `/v1/chat/completions` 接口，也可以提供 Anthropic 相容 `/v1/messages` 接口，例如 OLMX、LM Studio、Ollama、vLLM 等。
 
-### 一鍵安裝腳本
+### 一條命令安裝
 
-`install.sh` 提供英文、簡體中文、繁體中文互動提示。分發前請先把腳本頂部的 GitHub / Gitee 示例地址替換為你的真實倉庫地址：
+安裝器一開始會讓使用者選擇英文、簡體中文或繁體中文，並把啟動器語言保存在本地。
 
-```bash
-chmod +x install.sh
-./install.sh
-```
-
-### 啟動
+Gitee：
 
 ```bash
-streamlit run app.py
+curl -fsSL https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/scripts/bootstrap.sh | bash
 ```
 
-如果系統找不到 `streamlit`，使用虛擬環境裡的命令：
-
-macOS / Linux：
+GitHub：
 
 ```bash
-./.venv/bin/streamlit run app.py
+curl -fsSL https://raw.githubusercontent.com/agenius666/Ocr_Rag_UI/main/scripts/bootstrap.sh | bash
 ```
 
-Windows：
+### 通過啟動器啟動
 
-```powershell
-.venv\Scripts\streamlit run app.py
+```bash
+bash scripts/start.sh
 ```
 
 瀏覽器打開：
 
 ```text
-http://localhost:8501
+http://127.0.0.1:8501
 ```
 
 ### 使用流程
@@ -613,7 +608,15 @@ http://localhost:8501
 ```text
 ocr_rag_ui/
 ├── app.py                  # Streamlit 啟動入口
-├── install.sh              # 帶 GitHub/Gitee 示例地址的一鍵安裝腳本
+├── VERSION                 # 本地版本號
+├── update/latest.json      # 版本更新資訊模板
+├── scripts/                # 安裝、啟動、更新、卸載腳本
+│   ├── common.sh           # 啟動器語言和路徑公共函數
+│   ├── bootstrap.sh        # macOS / Linux / Windows Git Bash 首次安裝器
+│   ├── start.sh            # 統一啟動器和更新檢查選單
+│   ├── install.sh          # 安裝或修復依賴
+│   ├── update.sh           # git pull 和依賴同步
+│   └── uninstall.sh        # 清理和卸載選單
 ├── ocr_rag_app/
 │   ├── __init__.py
 │   ├── main.py             # Tab 組裝和啟動編排

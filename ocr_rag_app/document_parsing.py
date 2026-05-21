@@ -598,9 +598,10 @@ def get_indexed_ocr_geometry(page_result: Dict[str, Any], index: int) -> Any:
     return None
 
 
-def ocr_image_with_boxes(image_path: str) -> Tuple[str, List[Dict[str, Any]]]:
+def ocr_single_image_with_boxes(image_path: str) -> Tuple[str, List[Dict[str, Any]]]:
     """
-    对单张图片做 OCR，并保留可用于后续定位原文的坐标信息。
+    Run OCR for one image file as-is.
+    对单个图片文件按原样执行 OCR。
     """
     ocr_model = load_ocr_model()
     result = ocr_model.predict(image_path)
@@ -623,6 +624,114 @@ def ocr_image_with_boxes(image_path: str) -> Tuple[str, List[Dict[str, Any]]]:
                     }
                 )
     return "\n".join(lines), boxes
+
+
+def get_image_dimensions(image_path: str) -> Tuple[int, int]:
+    from PIL import Image
+
+    Image.MAX_IMAGE_PIXELS = None
+    with Image.open(image_path) as image:
+        return image.size
+
+
+def should_tile_image_for_ocr(image_path: str) -> bool:
+    try:
+        width, height = get_image_dimensions(image_path)
+        return max(width, height) > OCR_TILE_MAX_SIDE_PIXELS
+    except Exception:
+        return False
+
+
+def create_ocr_image_tiles(image_path: str, temp_dir: str) -> List[Dict[str, Any]]:
+    """
+    Split very long or very large images into OCR-safe tiles.
+    将超长或超大图片切成 PaddleOCR 更容易处理的小块。
+    """
+    from PIL import Image
+
+    Image.MAX_IMAGE_PIXELS = None
+    tiles = []
+    with Image.open(image_path) as source_image:
+        image = source_image.convert("RGB")
+        width, height = image.size
+        if max(width, height) <= OCR_TILE_MAX_SIDE_PIXELS:
+            tile_path = os.path.join(temp_dir, "tile_0001.png")
+            image.save(tile_path)
+            return [
+                {
+                    "path": tile_path,
+                    "index": 1,
+                    "x0": 0,
+                    "y0": 0,
+                    "x1": width,
+                    "y1": height,
+                    "width": width,
+                    "height": height,
+                }
+            ]
+
+        step = max(1, OCR_TILE_MAX_SIDE_PIXELS - OCR_TILE_OVERLAP_PIXELS)
+        tile_index = 0
+        y0 = 0
+        while y0 < height:
+            y1 = min(height, y0 + OCR_TILE_MAX_SIDE_PIXELS)
+            x0 = 0
+            while x0 < width:
+                x1 = min(width, x0 + OCR_TILE_MAX_SIDE_PIXELS)
+                tile_index += 1
+                tile = image.crop((x0, y0, x1, y1))
+                tile_path = os.path.join(temp_dir, f"tile_{tile_index:04d}.png")
+                tile.save(tile_path)
+                tiles.append(
+                    {
+                        "path": tile_path,
+                        "index": tile_index,
+                        "x0": x0,
+                        "y0": y0,
+                        "x1": x1,
+                        "y1": y1,
+                        "width": width,
+                        "height": height,
+                    }
+                )
+                if x1 >= width:
+                    break
+                x0 += step
+            if y1 >= height:
+                break
+            y0 += step
+    return tiles
+
+
+def ocr_image_with_boxes(image_path: str) -> Tuple[str, List[Dict[str, Any]]]:
+    """
+    OCR an image and preserve source-location metadata.
+    对图片做 OCR，并保留可用于后续定位原文的坐标信息。
+    """
+    if not should_tile_image_for_ocr(image_path):
+        return ocr_single_image_with_boxes(image_path)
+
+    text_parts = []
+    all_boxes = []
+    with tempfile.TemporaryDirectory(prefix="ocr_tiles_") as temp_dir:
+        tiles = create_ocr_image_tiles(image_path, temp_dir)
+        for tile in tiles:
+            tile_text, tile_boxes = ocr_single_image_with_boxes(tile["path"])
+            if tile_text:
+                text_parts.append(tile_text)
+            tile_meta = {
+                "tile_index": tile["index"],
+                "tile_x0": tile["x0"],
+                "tile_y0": tile["y0"],
+                "tile_x1": tile["x1"],
+                "tile_y1": tile["y1"],
+                "source_width": tile["width"],
+                "source_height": tile["height"],
+            }
+            for box in tile_boxes:
+                box["tile"] = tile_meta
+                all_boxes.append(box)
+    return "\n".join(text_parts), all_boxes
 
 
 def ocr_image(image_path: str) -> str:
@@ -852,6 +961,23 @@ def extract_pdf_table_text(page: fitz.Page) -> str:
         return ""
 
 
+def extract_pymupdf_layout_markdown(doc: fitz.Document, page_index: int) -> str:
+    """
+    Use PyMuPDF Layout when installed; fall back silently when unavailable.
+    安装了 PyMuPDF Layout 时优先使用；不可用时静默回退。
+    """
+    try:
+        import pymupdf.layout  # noqa: F401
+        import pymupdf4llm
+
+        markdown = pymupdf4llm.to_markdown(doc, pages=[page_index])
+        if isinstance(markdown, list):
+            markdown = "\n\n".join(str(item) for item in markdown)
+        return str(markdown or "").strip()
+    except Exception:
+        return ""
+
+
 def build_pdf_layout_text(
     page: fitz.Page,
     lines: List[Dict[str, Any]],
@@ -900,10 +1026,11 @@ def extract_pdf_sections(
                     + f"{page_no}/{len(doc)}"
                     + localized_text("", " 页", " 頁")
                 )
-            direct_text = build_pdf_layout_text(page, layout_pages[page_index], repeated_margin_lines)
+            layout_markdown = extract_pymupdf_layout_markdown(doc, page_index)
+            direct_text = layout_markdown or build_pdf_layout_text(page, layout_pages[page_index], repeated_margin_lines)
             ocr_text = ""
             ocr_boxes = []
-            extract_method = "pymupdf_text"
+            extract_method = "pymupdf_layout" if layout_markdown else "pymupdf_text"
             compact_text_length = len(direct_text.replace("\n", "").strip())
 
             if pdf_ocr_mode == "force":
@@ -924,7 +1051,11 @@ def extract_pdf_sections(
                         (source_label("page_ocr_text"), ocr_text),
                     ]
                 )
-                extract_method = "pymupdf_text+paddleocr_page"
+                extract_method = (
+                    "pymupdf_layout+paddleocr_page"
+                    if layout_markdown
+                    else "pymupdf_text+paddleocr_page"
+                )
             elif pdf_ocr_mode == "smart" and compact_text_length < ocr_threshold:
                 image_path = render_pdf_page_to_image(doc, pdf_path, page_index)
                 try:
