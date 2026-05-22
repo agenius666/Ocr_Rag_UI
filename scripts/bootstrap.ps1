@@ -113,6 +113,7 @@ function Normalize-InstallPath {
     param([string]$PathValue)
     $value = [string]$PathValue
     $value = $value.Trim()
+    $value = $value.Trim([char[]]@('"', "'", [char]0x201C, [char]0x201D, [char]0x2018, [char]0x2019))
     if ($value.StartsWith('"') -and $value.EndsWith('"')) {
         $value = $value.Substring(1, $value.Length - 2)
     }
@@ -131,7 +132,11 @@ function Normalize-InstallPath {
         return (Join-Path $HOME $value.Substring(2))
     }
 
-    return [System.IO.Path]::GetFullPath($value)
+    try {
+        return [System.IO.Path]::GetFullPath($value)
+    } catch {
+        Fail "Invalid install directory: $value" "安装目录无效：$value" "安裝目錄無效：$value"
+    }
 }
 
 function Choose-InstallDir {
@@ -222,30 +227,48 @@ function Ensure-Python {
 function Clone-Or-UpdateRepo {
     param([string]$TargetDir)
     $parent = Split-Path -Parent $TargetDir
-    if (-not (Test-Path $parent)) {
-        New-Item -ItemType Directory -Path $parent | Out-Null
+    $root = [System.IO.Path]::GetPathRoot($TargetDir)
+
+    if (-not [string]::IsNullOrWhiteSpace($root) -and -not (Test-Path -LiteralPath $root)) {
+        Fail "Install drive or root path does not exist: $root" "安装盘符或根路径不存在：$root" "安裝磁碟或根路徑不存在：$root"
     }
 
-    if (-not (Test-Path $TargetDir)) {
-        Say "Cloning project from GitHub..." "正在从 GitHub 拉取项目源码..." "正在從 GitHub 拉取專案原始碼..."
-        git clone $GitHubRepoUrl $TargetDir
-        if ($LASTEXITCODE -ne 0) {
-            Say "GitHub clone failed. Trying Gitee..." "GitHub 拉取失败，尝试 Gitee..." "GitHub 拉取失敗，嘗試 Gitee..."
-            git clone $GiteeRepoUrl $TargetDir
-            if ($LASTEXITCODE -ne 0) {
-                Fail "Both GitHub and Gitee clone failed." "GitHub 和 Gitee 拉取都失败。" "GitHub 和 Gitee 拉取都失敗。"
-            }
+    if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path -LiteralPath $parent)) {
+        try {
+            New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        } catch {
+            Fail "Unable to create install parent directory: $parent" "无法创建安装父目录：$parent" "無法建立安裝父目錄：$parent"
         }
-        return
     }
 
-    if (Test-Path (Join-Path $TargetDir ".git")) {
+    if (Test-Path -LiteralPath $TargetDir -PathType Leaf) {
+        Fail "The install path exists but is a file: $TargetDir" "安装路径已存在，但它是文件：$TargetDir" "安裝路徑已存在，但它是檔案：$TargetDir"
+    }
+
+    if (Test-Path -LiteralPath (Join-Path $TargetDir ".git")) {
         Say "Existing Git repository found. Pulling latest code..." "发现已有 Git 仓库，正在更新..." "發現已有 Git 倉庫，正在更新..."
         git -C $TargetDir pull --ff-only
         return
     }
 
-    Fail "The target directory exists but is not a Git repository." "目录已存在但不是 Git 仓库，不能自动覆盖。" "目錄已存在但不是 Git 倉庫，不能自動覆蓋。"
+    if (Test-Path -LiteralPath $TargetDir) {
+        $existingItems = @(Get-ChildItem -LiteralPath $TargetDir -Force -ErrorAction Stop)
+        if ($existingItems.Count -gt 0) {
+            Fail "The target directory already contains files and is not a Git repository. Please choose an empty directory or an existing DocRAG Git repository." "目标目录已有文件且不是 Git 仓库。请选择空目录，或选择已有的 DocRAG Git 仓库。" "目標目錄已有檔案且不是 Git 倉庫。請選擇空目錄，或選擇已有的 DocRAG Git 倉庫。"
+        }
+        Say "Empty install directory found. Cloning project into it..." "发现空安装目录，正在把项目拉取到该目录..." "發現空安裝目錄，正在把專案拉取到該目錄..."
+    } else {
+        Say "Cloning project from GitHub..." "正在从 GitHub 拉取项目源码..." "正在從 GitHub 拉取專案原始碼..."
+    }
+
+    git clone $GitHubRepoUrl $TargetDir
+    if ($LASTEXITCODE -ne 0) {
+        Say "GitHub clone failed. Trying Gitee..." "GitHub 拉取失败，尝试 Gitee..." "GitHub 拉取失敗，嘗試 Gitee..."
+        git clone $GiteeRepoUrl $TargetDir
+        if ($LASTEXITCODE -ne 0) {
+            Fail "Both GitHub and Gitee clone failed." "GitHub 和 Gitee 拉取都失败。" "GitHub 和 Gitee 拉取都失敗。"
+        }
+    }
 }
 
 function Install-Dependencies {
@@ -280,12 +303,22 @@ $StartScript = Join-Path $Root "scripts\start.ps1"
     Say "Launch later with: powershell -ExecutionPolicy Bypass -File start.ps1" "以后可启动：右键 start.ps1 选择“使用 PowerShell 运行”，或执行 powershell -ExecutionPolicy Bypass -File start.ps1" "以後可啟動：右鍵 start.ps1 選擇「使用 PowerShell 執行」，或執行 powershell -ExecutionPolicy Bypass -File start.ps1"
 }
 
-Choose-Language
-$ResolvedInstallDir = Choose-InstallDir
-Say "Detected system: Windows PowerShell" "检测到系统：Windows PowerShell" "偵測到系統：Windows PowerShell"
-Ensure-Git
-$PythonInvocation = Ensure-Python
-Clone-Or-UpdateRepo $ResolvedInstallDir
-Install-Dependencies $ResolvedInstallDir $PythonInvocation
-Write-RootLauncher $ResolvedInstallDir
-Say "Installation completed." "安装完成。" "安裝完成。"
+try {
+    Choose-Language
+    $ResolvedInstallDir = Choose-InstallDir
+    Say "Detected system: Windows PowerShell" "检测到系统：Windows PowerShell" "偵測到系統：Windows PowerShell"
+    Say "Install directory: $ResolvedInstallDir" "安装目录：$ResolvedInstallDir" "安裝目錄：$ResolvedInstallDir"
+    Ensure-Git
+    $PythonInvocation = Ensure-Python
+    Clone-Or-UpdateRepo $ResolvedInstallDir
+    Install-Dependencies $ResolvedInstallDir $PythonInvocation
+    Write-RootLauncher $ResolvedInstallDir
+    Say "Installation completed." "安装完成。" "安裝完成。"
+    Pause-BeforeExit
+} catch {
+    Write-Host ""
+    Write-Host (Msg "Installation stopped because of an unexpected error:" "安装中止，发生未预期错误：" "安裝中止，發生未預期錯誤：") -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    Pause-BeforeExit
+    exit 1
+}
