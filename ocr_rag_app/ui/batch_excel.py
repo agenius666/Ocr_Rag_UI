@@ -268,6 +268,30 @@ def bump_batch_output_mapping_revision() -> None:
     ) + 1
 
 
+def remove_batch_output_mapping(index: int, current_mappings: List[Dict[str, Any]], revision: int) -> None:
+    updated_mappings = collect_batch_output_mappings_from_widgets(current_mappings, revision)
+    if len(updated_mappings) <= 1 or index >= len(updated_mappings):
+        return
+    updated_mappings.pop(index)
+    st.session_state["batch_output_mappings"] = updated_mappings
+    save_batch_output_mappings(updated_mappings)
+    bump_batch_output_mapping_revision()
+
+
+def add_batch_output_mapping(current_mappings: List[Dict[str, Any]], revision: int) -> None:
+    updated_mappings = collect_batch_output_mappings_from_widgets(current_mappings, revision)
+    updated_mappings.append(
+        {
+            "column": "D",
+            "description": localized_text("Output field", "输出字段", "輸出欄位"),
+            "max_chars": 150,
+        }
+    )
+    st.session_state["batch_output_mappings"] = updated_mappings
+    save_batch_output_mappings(updated_mappings)
+    bump_batch_output_mapping_revision()
+
+
 def render_batch_output_mapping_editor(column_options: List[str], worksheet, header_row: int) -> List[Dict[str, Any]]:
     if "batch_output_mappings" not in st.session_state:
         st.session_state["batch_output_mappings"] = load_batch_output_mappings()
@@ -330,14 +354,13 @@ def render_batch_output_mapping_editor(column_options: List[str], worksheet, hea
             )
         with row_cols[3]:
             st.write("")
-            if st.button("-", key=f"remove_batch_output_mapping_{revision}_{index}", disabled=len(current_mappings) <= 1):
-                updated_mappings = collect_batch_output_mappings_from_widgets(current_mappings, revision)
-                if index < len(updated_mappings):
-                    updated_mappings.pop(index)
-                st.session_state["batch_output_mappings"] = updated_mappings
-                save_batch_output_mappings(updated_mappings)
-                bump_batch_output_mapping_revision()
-                st.rerun()
+            st.button(
+                "-",
+                key=f"remove_batch_output_mapping_{revision}_{index}",
+                disabled=len(current_mappings) <= 1,
+                on_click=remove_batch_output_mapping,
+                args=(index, list(current_mappings), revision),
+            )
 
         normalized_mappings.append(
             {
@@ -349,19 +372,12 @@ def render_batch_output_mapping_editor(column_options: List[str], worksheet, hea
 
     add_col, _ = st.columns([1, 5])
     with add_col:
-        if st.button("+", key=f"add_batch_output_mapping_{revision}"):
-            updated_mappings = collect_batch_output_mappings_from_widgets(current_mappings, revision)
-            updated_mappings.append(
-                {
-                    "column": "D",
-                    "description": localized_text("Output field", "输出字段", "輸出欄位"),
-                    "max_chars": 150,
-                }
-            )
-            st.session_state["batch_output_mappings"] = updated_mappings
-            save_batch_output_mappings(updated_mappings)
-            bump_batch_output_mapping_revision()
-            st.rerun()
+        st.button(
+            "+",
+            key=f"add_batch_output_mapping_{revision}",
+            on_click=add_batch_output_mapping,
+            args=(list(current_mappings), revision),
+        )
 
     st.session_state["batch_output_mappings"] = normalized_mappings
     save_batch_output_mappings(normalized_mappings)

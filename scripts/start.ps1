@@ -62,6 +62,15 @@ function Say {
     Write-Host (Msg $En $ZhCn $ZhTw)
 }
 
+function Read-MenuChoice {
+    param([string]$Prompt, [string]$DefaultWhenRedirected = "")
+    $choice = Read-Host $Prompt
+    if ([string]::IsNullOrWhiteSpace($choice) -and [Console]::IsInputRedirected) {
+        return $DefaultWhenRedirected
+    }
+    return $choice
+}
+
 function Current-Version {
     $versionFile = Join-Path $RootDir "VERSION"
     if (Test-Path $versionFile) {
@@ -240,7 +249,7 @@ function Cleanup-Menu {
     Write-Host ""
     Write-Host "1. $(Msg 'Safe cleanup' '安全清理' '安全清理')"
     Write-Host "2. $(Msg 'Return' '返回' '返回')"
-    $choice = Read-Host (Msg "Choose [1-2]" "请选择 [1-2]" "請選擇 [1-2]")
+    $choice = Read-MenuChoice (Msg "Choose [1-2]" "请选择 [1-2]" "請選擇 [1-2]") "2"
     if ($choice -eq "1") {
         Safe-Clean
     }
@@ -262,7 +271,7 @@ function Main-Menu {
         Write-Host "5. $(Msg 'Show Current Version' '查看当前版本' '查看目前版本')"
         Write-Host "6. $(Msg 'Uninstall / Clean' '卸载/清理' '卸載/清理')"
         Write-Host "7. $(Msg 'Exit' '退出' '退出')"
-        $choice = Read-Host (Msg "Choose [1-7]" "请选择 [1-7]" "請選擇 [1-7]")
+        $choice = Read-MenuChoice (Msg "Choose [1-7]" "请选择 [1-7]" "請選擇 [1-7]") "7"
         switch ($choice) {
             "1" { Start-App }
             "2" { Check-Update "manual" }
