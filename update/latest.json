@@ -1,13 +1,8 @@
 {
-  "version": "0.1.0",
-  "date": "2026-05-21",
-  "title": "v0.1.0",
+  "version": "0.1.1",
+  "date": "2026-05-22",
+  "title": "v0.1.1",
   "notes": [
-    "新增三端 bootstrap 安装器",
-    "新增统一启动器和更新检查菜单",
-    "新增依赖修复、源码更新和卸载清理脚本",
-    "优化 PDF 版面解析和超长图片 OCR 切块流程"
-  ],
-  "github": "https://github.com/agenius666/Ocr_Rag_UI/releases/tag/v0.1.0",
-  "gitee": "https://gitee.com/agenius66/ocr_-rag_-ui/releases/tag/v0.1.0"
+    "修复了部分bug。"
+  ]
 }
