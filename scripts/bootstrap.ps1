@@ -62,10 +62,51 @@ function Say {
     Write-Host (Msg $En $ZhCn $ZhTw)
 }
 
+function Pause-BeforeExit {
+    if (-not [Console]::IsInputRedirected) {
+        Write-Host ""
+        Read-Host (Msg "Press Enter to close this window" "按 Enter 关闭此窗口" "按 Enter 關閉此視窗") | Out-Null
+    }
+}
+
 function Fail {
     param([string]$En, [string]$ZhCn, [string]$ZhTw)
     Write-Error (Msg $En $ZhCn $ZhTw)
+    Pause-BeforeExit
     exit 1
+}
+
+function Refresh-SessionPath {
+    $seen = @{}
+    $segments = New-Object System.Collections.Generic.List[string]
+    $pathSources = @(
+        [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::Machine),
+        [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::User),
+        $env:Path,
+        "C:\Program Files\Git\cmd",
+        "C:\Program Files\Git\bin",
+        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python312"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\Scripts")
+    )
+
+    foreach ($source in $pathSources) {
+        if ([string]::IsNullOrWhiteSpace($source)) {
+            continue
+        }
+        foreach ($segment in ($source -split ";")) {
+            $value = $segment.Trim()
+            if ([string]::IsNullOrWhiteSpace($value)) {
+                continue
+            }
+            $key = $value.ToLowerInvariant()
+            if (-not $seen.ContainsKey($key)) {
+                $seen[$key] = $true
+                $segments.Add($value)
+            }
+        }
+    }
+
+    $env:Path = $segments -join ";"
 }
 
 function Normalize-InstallPath {
@@ -114,8 +155,9 @@ function Ensure-Git {
     }
 
     winget install --id Git.Git -e --accept-source-agreements --accept-package-agreements
+    Refresh-SessionPath
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        Fail "Git was installed, but this PowerShell session cannot find it yet. Reopen PowerShell and run bootstrap again." "Git 已安装，但当前 PowerShell 会话还找不到它。请重新打开 PowerShell 后再次运行安装命令。" "Git 已安裝，但目前 PowerShell 工作階段還找不到它。請重新開啟 PowerShell 後再次執行安裝命令。"
+        Fail "Git was installed, but this PowerShell session still cannot find it. Reopen PowerShell and run bootstrap again." "Git 已安装，但当前 PowerShell 会话仍然找不到它。请重新打开 PowerShell 后再次运行安装命令。" "Git 已安裝，但目前 PowerShell 工作階段仍然找不到它。請重新開啟 PowerShell 後再次執行安裝命令。"
     }
 }
 
@@ -169,9 +211,10 @@ function Ensure-Python {
     }
 
     winget install --id Python.Python.3.12 -e --accept-source-agreements --accept-package-agreements
+    Refresh-SessionPath
     $python = Get-PythonInvocation
     if (-not $python) {
-        Fail "Python was installed, but this PowerShell session cannot find it yet. Reopen PowerShell and run bootstrap again." "Python 已安装，但当前 PowerShell 会话还找不到它。请重新打开 PowerShell 后再次运行安装命令。" "Python 已安裝，但目前 PowerShell 工作階段還找不到它。請重新開啟 PowerShell 後再次執行安裝命令。"
+        Fail "Python was installed, but this PowerShell session still cannot find it. Reopen PowerShell and run bootstrap again." "Python 已安装，但当前 PowerShell 会话仍然找不到它。请重新打开 PowerShell 后再次运行安装命令。" "Python 已安裝，但目前 PowerShell 工作階段仍然找不到它。請重新開啟 PowerShell 後再次執行安裝命令。"
     }
     return $python
 }
