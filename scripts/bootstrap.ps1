@@ -70,7 +70,8 @@ function Fail {
 
 function Normalize-InstallPath {
     param([string]$PathValue)
-    $value = ($PathValue | ForEach-Object { "$_".Trim() })
+    $value = [string]$PathValue
+    $value = $value.Trim()
     if ($value.StartsWith('"') -and $value.EndsWith('"')) {
         $value = $value.Substring(1, $value.Length - 2)
     }
@@ -83,9 +84,12 @@ function Normalize-InstallPath {
     if ($value -eq "~") {
         return $HOME
     }
-    if ($value.StartsWith("~/") -or $value.StartsWith("~\")) {
+
+    $value = [Environment]::ExpandEnvironmentVariables($value)
+    if ($value.StartsWith("~/") -or $value.StartsWith('~\')) {
         return (Join-Path $HOME $value.Substring(2))
     }
+
     return [System.IO.Path]::GetFullPath($value)
 }
 

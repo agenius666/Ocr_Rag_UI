@@ -238,9 +238,40 @@ def build_evidence_caption(search_results: List[Dict[str, Any]]) -> str:
     return "；".join(captions)
 
 
+def collect_batch_output_mappings_from_widgets(
+    current_mappings: List[Dict[str, Any]],
+    revision: int,
+) -> List[Dict[str, Any]]:
+    mappings = []
+    for index, item in enumerate(current_mappings):
+        mappings.append(
+            {
+                "column": normalize_excel_column(
+                    st.session_state.get(f"batch_output_column_{revision}_{index}", item.get("column", "D"))
+                ),
+                "description": str(
+                    st.session_state.get(f"batch_output_description_{revision}_{index}", item.get("description", ""))
+                    or ""
+                ).strip(),
+                "max_chars": max(
+                    1,
+                    int(st.session_state.get(f"batch_output_max_chars_{revision}_{index}", item.get("max_chars", 150)) or 150),
+                ),
+            }
+        )
+    return mappings
+
+
+def bump_batch_output_mapping_revision() -> None:
+    st.session_state["batch_output_mapping_revision"] = int(
+        st.session_state.get("batch_output_mapping_revision", 0)
+    ) + 1
+
+
 def render_batch_output_mapping_editor(column_options: List[str], worksheet, header_row: int) -> List[Dict[str, Any]]:
     if "batch_output_mappings" not in st.session_state:
         st.session_state["batch_output_mappings"] = load_batch_output_mappings()
+    revision = int(st.session_state.setdefault("batch_output_mapping_revision", 0))
 
     st.markdown(localized_text("#### Excel Writeback Configuration", "#### Excel 回写配置", "#### Excel 回寫配置"))
     st.caption(
@@ -265,7 +296,7 @@ def render_batch_output_mapping_editor(column_options: List[str], worksheet, hea
                 column_options,
                 index=column_options.index(current_column),
                 format_func=lambda option: column_option_label(worksheet, header_row, option),
-                key=f"batch_output_column_{index}",
+                key=f"batch_output_column_{revision}_{index}",
                 help=localized_text(
                     "The Excel column to write this JSON field back to.",
                     "该 JSON 字段最终要写回的 Excel 列。",
@@ -276,7 +307,7 @@ def render_batch_output_mapping_editor(column_options: List[str], worksheet, hea
             description = st.text_input(
                 localized_text("Output Description", "输出说明", "輸出說明"),
                 value=str(item.get("description", "") or ""),
-                key=f"batch_output_description_{index}",
+                key=f"batch_output_description_{revision}_{index}",
                 help=localized_text(
                     "This becomes the instruction for the corresponding JSON field.",
                     "这会作为对应 JSON 字段的生成要求。",
@@ -290,7 +321,7 @@ def render_batch_output_mapping_editor(column_options: List[str], worksheet, hea
                 max_value=5000,
                 value=max(1, int(item.get("max_chars", 150) or 150)),
                 step=10,
-                key=f"batch_output_max_chars_{index}",
+                key=f"batch_output_max_chars_{revision}_{index}",
                 help=localized_text(
                     "The app truncates the value before writing it back if the model exceeds this limit.",
                     "如果模型输出超过该长度，写回前会自动截断。",
@@ -299,8 +330,13 @@ def render_batch_output_mapping_editor(column_options: List[str], worksheet, hea
             )
         with row_cols[3]:
             st.write("")
-            if st.button("-", key=f"remove_batch_output_mapping_{index}", disabled=len(current_mappings) <= 1):
-                st.session_state["batch_output_mappings"].pop(index)
+            if st.button("-", key=f"remove_batch_output_mapping_{revision}_{index}", disabled=len(current_mappings) <= 1):
+                updated_mappings = collect_batch_output_mappings_from_widgets(current_mappings, revision)
+                if index < len(updated_mappings):
+                    updated_mappings.pop(index)
+                st.session_state["batch_output_mappings"] = updated_mappings
+                save_batch_output_mappings(updated_mappings)
+                bump_batch_output_mapping_revision()
                 st.rerun()
 
         normalized_mappings.append(
@@ -313,14 +349,18 @@ def render_batch_output_mapping_editor(column_options: List[str], worksheet, hea
 
     add_col, _ = st.columns([1, 5])
     with add_col:
-        if st.button("+", key="add_batch_output_mapping"):
-            st.session_state["batch_output_mappings"].append(
+        if st.button("+", key=f"add_batch_output_mapping_{revision}"):
+            updated_mappings = collect_batch_output_mappings_from_widgets(current_mappings, revision)
+            updated_mappings.append(
                 {
                     "column": "D",
                     "description": localized_text("Output field", "输出字段", "輸出欄位"),
                     "max_chars": 150,
                 }
             )
+            st.session_state["batch_output_mappings"] = updated_mappings
+            save_batch_output_mappings(updated_mappings)
+            bump_batch_output_mapping_revision()
             st.rerun()
 
     st.session_state["batch_output_mappings"] = normalized_mappings
