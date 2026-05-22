@@ -2462,30 +2462,8 @@ def create_vector_library_backup() -> bytes:
                 raise backup_permission_error(file_path) from exc
             raise
 
-    def write_sqlite_snapshot(archive: zipfile.ZipFile, db_path: str, archive_name: str) -> None:
-        temp_db_path = ""
-        try:
-            with tempfile.NamedTemporaryFile(prefix="ocr_rag_backup_", suffix=".sqlite3", delete=False) as temp_file:
-                temp_db_path = temp_file.name
-            with sqlite3.connect(f"file:{os.path.abspath(db_path)}?mode=ro", uri=True, timeout=30) as source:
-                with sqlite3.connect(temp_db_path) as target:
-                    source.backup(target)
-            write_backup_file(archive, temp_db_path, archive_name)
-        except PermissionError as exc:
-            raise backup_permission_error(db_path) from exc
-        except sqlite3.DatabaseError:
-            write_backup_file(archive, db_path, archive_name)
-        finally:
-            if temp_db_path:
-                try:
-                    os.remove(temp_db_path)
-                except OSError:
-                    pass
-
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
-        if os.path.exists(APP_DB_FILE):
-            write_sqlite_snapshot(archive, APP_DB_FILE, APP_DB_FILE)
         if os.path.isdir(QDRANT_DIR):
             state = get_qdrant_singleton_state()
             with state["lock"]:
@@ -2501,7 +2479,6 @@ def create_vector_library_backup() -> bytes:
 def safe_extract_backup(uploaded_backup) -> Tuple[str, bool]:
     temp_dir = tempfile.mkdtemp(prefix="ocr_rag_restore_")
     has_qdrant = False
-    has_app_db = False
     try:
         uploaded_backup.seek(0)
     except Exception:
@@ -2511,9 +2488,7 @@ def safe_extract_backup(uploaded_backup) -> Tuple[str, bool]:
             normalized = member.filename.replace("\\", "/")
             if normalized.endswith("/"):
                 continue
-            if normalized == APP_DB_FILE:
-                has_app_db = True
-            elif normalized.startswith(f"{QDRANT_DIR}/"):
+            if normalized.startswith(f"{QDRANT_DIR}/"):
                 has_qdrant = True
             else:
                 continue
@@ -2529,12 +2504,12 @@ def safe_extract_backup(uploaded_backup) -> Tuple[str, bool]:
             os.makedirs(os.path.dirname(target_path), exist_ok=True)
             with archive.open(member) as source, open(target_path, "wb") as target:
                 shutil.copyfileobj(source, target)
-    if not has_qdrant and not has_app_db:
+    if not has_qdrant:
         raise ValueError(
             localized_text(
-                "The backup does not contain app_state.sqlite3 or qdrant_db contents.",
-                "备份包中没有发现 app_state.sqlite3 或 qdrant_db 内容。",
-                "備份包中沒有發現 app_state.sqlite3 或 qdrant_db 內容。",
+                "The backup does not contain qdrant_db contents.",
+                "备份包中没有发现 qdrant_db 向量库内容。",
+                "備份包中沒有發現 qdrant_db 向量庫內容。",
             )
         )
     return temp_dir, has_qdrant
@@ -2548,18 +2523,15 @@ def restore_vector_library_backup(uploaded_backup) -> str:
             load_qdrant_client.clear()
         except Exception:
             pass
-        restored_app_db = os.path.join(restore_dir, APP_DB_FILE)
-        if os.path.exists(restored_app_db):
-            shutil.copy2(restored_app_db, APP_DB_FILE)
         restored_qdrant_dir = os.path.join(restore_dir, QDRANT_DIR)
         if has_qdrant and os.path.isdir(restored_qdrant_dir):
             if os.path.isdir(QDRANT_DIR):
                 shutil.rmtree(QDRANT_DIR)
             shutil.copytree(restored_qdrant_dir, QDRANT_DIR)
         return localized_text(
-            "Backup imported. Restart Streamlit to ensure Qdrant and SQLite reload cleanly.",
-            "备份已导入。建议重启 Streamlit，确保 Qdrant 和 SQLite 重新加载。",
-            "備份已導入。建議重啟 Streamlit，確保 Qdrant 和 SQLite 重新載入。",
+            "Backup imported. Restart Streamlit to ensure Qdrant reloads cleanly.",
+            "备份已导入。建议重启 Streamlit，确保 Qdrant 重新加载。",
+            "備份已導入。建議重啟 Streamlit，確保 Qdrant 重新載入。",
         )
     finally:
         shutil.rmtree(restore_dir, ignore_errors=True)

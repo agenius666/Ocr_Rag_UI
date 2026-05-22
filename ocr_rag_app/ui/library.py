@@ -40,9 +40,9 @@ def render_library_tab() -> None:
     with st.expander("向量库备份 / 导入 / 导出", expanded=False):
         st.caption(
             localized_text(
-                "The export includes the Qdrant vector store and app_state.sqlite3. It does not include original files under uploads.",
-                "导出会包含 Qdrant 向量库和 app_state.sqlite3；不包含 uploads 原始文件。",
-                "導出會包含 Qdrant 向量庫和 app_state.sqlite3；不包含 uploads 原始文件。",
+                "The export contains only the Qdrant vector store (qdrant_db/). It does not include app_state.sqlite3 or original files under uploads.",
+                "导出仅包含 Qdrant 向量库（qdrant_db/），不包含 app_state.sqlite3 和 uploads 原始文件。",
+                "導出僅包含 Qdrant 向量庫（qdrant_db/），不包含 app_state.sqlite3 和 uploads 原始文件。",
             )
         )
         try:
