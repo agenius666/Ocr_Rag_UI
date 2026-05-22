@@ -1,6 +1,8 @@
 [server]
 headless = true
 fileWatcherType = "none"
+maxUploadSize = 10240
+maxMessageSize = 10240
 
 [browser]
 gatherUsageStats = false

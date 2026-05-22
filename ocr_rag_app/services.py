@@ -2437,16 +2437,64 @@ def get_file_summary_rows() -> List[Dict[str, Any]]:
 
 
 def create_vector_library_backup() -> bytes:
+    def backup_permission_error(file_path: str) -> RuntimeError:
+        return RuntimeError(
+            localized_text(
+                f"Backup could not read {file_path}. Close other programs that may be using the vector store, then retry. If the issue persists, check file permissions.",
+                f"备份时无法读取文件：{file_path}。请先关闭可能正在占用向量库的其他程序后重试；如果仍失败，请检查该文件权限。",
+                f"備份時無法讀取文件：{file_path}。請先關閉可能正在佔用向量庫的其他程式後重試；如果仍失敗，請檢查該文件權限。",
+            )
+        )
+
+    def should_skip_backup_file(file_path: str) -> bool:
+        file_name = os.path.basename(file_path)
+        return file_name in {".lock", ".DS_Store", "Thumbs.db", "desktop.ini"} or file_name.startswith("._")
+
+    def write_backup_file(archive: zipfile.ZipFile, file_path: str, archive_name: str) -> None:
+        if should_skip_backup_file(file_path):
+            return
+        try:
+            archive.write(file_path, archive_name)
+        except PermissionError as exc:
+            raise backup_permission_error(file_path) from exc
+        except OSError as exc:
+            if getattr(exc, "errno", None) == 13:
+                raise backup_permission_error(file_path) from exc
+            raise
+
+    def write_sqlite_snapshot(archive: zipfile.ZipFile, db_path: str, archive_name: str) -> None:
+        temp_db_path = ""
+        try:
+            with tempfile.NamedTemporaryFile(prefix="ocr_rag_backup_", suffix=".sqlite3", delete=False) as temp_file:
+                temp_db_path = temp_file.name
+            with sqlite3.connect(f"file:{os.path.abspath(db_path)}?mode=ro", uri=True, timeout=30) as source:
+                with sqlite3.connect(temp_db_path) as target:
+                    source.backup(target)
+            write_backup_file(archive, temp_db_path, archive_name)
+        except PermissionError as exc:
+            raise backup_permission_error(db_path) from exc
+        except sqlite3.DatabaseError:
+            write_backup_file(archive, db_path, archive_name)
+        finally:
+            if temp_db_path:
+                try:
+                    os.remove(temp_db_path)
+                except OSError:
+                    pass
+
     output = io.BytesIO()
-    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
         if os.path.exists(APP_DB_FILE):
-            archive.write(APP_DB_FILE, APP_DB_FILE)
+            write_sqlite_snapshot(archive, APP_DB_FILE, APP_DB_FILE)
         if os.path.isdir(QDRANT_DIR):
-            for root, _dirs, files in os.walk(QDRANT_DIR):
-                for file_name in files:
-                    file_path = os.path.join(root, file_name)
-                    archive_name = os.path.relpath(file_path, ".")
-                    archive.write(file_path, archive_name)
+            state = get_qdrant_singleton_state()
+            with state["lock"]:
+                for root, dirs, files in os.walk(QDRANT_DIR):
+                    dirs[:] = [name for name in dirs if name != "__MACOSX"]
+                    for file_name in files:
+                        file_path = os.path.join(root, file_name)
+                        archive_name = os.path.relpath(file_path, ".")
+                        write_backup_file(archive, file_path, archive_name)
     return output.getvalue()
 
 
