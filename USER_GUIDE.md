@@ -43,6 +43,7 @@ Open **Settings**:
 
 - Language: choose English, Simplified Chinese, or Traditional Chinese.
 - Models and paths: set cache locations for PaddleOCR, BGE-M3, reranker, and LibreOffice.
+- Download and install sources: choose the Hugging Face endpoint for BGE-M3/reranker, the PaddleOCR model source, and the LibreOffice install source or custom single-command installer.
 - Vector store: choose local Qdrant or HTTP/Docker Qdrant.
 - Local LLM: configure the OpenAI-compatible or Anthropic-compatible endpoint, API key, model names, and optional `extra_body`.
 
@@ -183,6 +184,7 @@ http://127.0.0.1:8501
 
 - 语言设置：选择 English、简体中文或繁體中文。
 - 模型与路径：设置 PaddleOCR、BGE-M3、重排模型和 LibreOffice 路径。
+- 下载与安装源：设置 BGE-M3/Reranker 使用的 Hugging Face 端点、PaddleOCR 模型来源，以及 LibreOffice 安装来源或自定义单条安装命令。
 - 向量库连接：选择本地 Qdrant 或 HTTP/Docker Qdrant。
 - 本地大模型：配置 OpenAI 兼容或 Anthropic 兼容接口、API Key、模型名和可选 `extra_body`。
 
@@ -323,6 +325,7 @@ http://127.0.0.1:8501
 
 - 語言設定：選擇 English、简体中文 或 繁體中文。
 - 模型與路徑：設定 PaddleOCR、BGE-M3、重排模型和 LibreOffice 路徑。
+- 下載與安裝源：設定 BGE-M3/Reranker 使用的 Hugging Face 端點、PaddleOCR 模型來源，以及 LibreOffice 安裝來源或自訂單條安裝命令。
 - 向量庫連線：選擇本機 Qdrant 或 HTTP/Docker Qdrant。
 - 本地大模型：配置 OpenAI 相容或 Anthropic 相容接口、API Key、模型名和可選 `extra_body`。
 

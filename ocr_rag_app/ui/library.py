@@ -2,14 +2,33 @@
 文档库管理页面 UI。
 """
 
+import os
+import time
+
 from ..services import *
 from .components import *
+
+
+SAFE_BROWSER_DOWNLOAD_BYTES = 500 * 1024 * 1024
+
+
+def format_file_size(size_bytes: int) -> str:
+    units = ["B", "KB", "MB", "GB", "TB"]
+    value = float(size_bytes)
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} B"
+        value /= 1024
+    return f"{size_bytes} B"
 
 
 def render_library_tab() -> None:
     st.subheader(localized_text("Document Library", "文档库管理", "文件庫管理"))
     st.write(translate_text("当前 Qdrant Collection："), COLLECTION_NAME)
     render_library_summary()
+    library_notice = st.session_state.pop("library_notice", "")
+    if library_notice:
+        st.success(library_notice)
 
     show_file_summary = st.toggle(
         localized_text("View File Summary", "查看文件摘要", "查看文件摘要"),
@@ -62,12 +81,12 @@ def render_library_tab() -> None:
             else:
                 st.info(localized_text("No deduplication records yet.", "暂无去重记录。", "暫無去重記錄。"))
 
-    with st.expander("向量库备份 / 导入 / 导出", expanded=False):
+    with st.expander(localized_text("Vector Store Backup / Import / Export", "向量库备份 / 导入 / 导出", "向量庫備份 / 導入 / 導出"), expanded=False):
         st.caption(
             localized_text(
-                "The export contains only the Qdrant vector store (qdrant_db/). It does not include app_state.sqlite3 or original files under uploads.",
-                "导出仅包含 Qdrant 向量库（qdrant_db/），不包含 app_state.sqlite3 和 uploads 原始文件。",
-                "導出僅包含 Qdrant 向量庫（qdrant_db/），不包含 app_state.sqlite3 和 uploads 原始文件。",
+                "The backup contains the local Qdrant vector store and a SQLite file index export used by file summaries and deduplication records. Original uploaded files under uploads are not included. Docker/HTTP Qdrant should use the Qdrant server snapshot mechanism.",
+                "备份包含本地 Qdrant 向量库，以及用于文件摘要和去重记录的 SQLite 文件索引导出；不包含 uploads 原始上传文件。Docker/HTTP Qdrant 请使用 Qdrant 服务端 snapshot 机制。",
+                "備份包含本地 Qdrant 向量庫，以及用於文件摘要和去重記錄的 SQLite 文件索引導出；不包含 uploads 原始上傳文件。Docker/HTTP Qdrant 請使用 Qdrant 服務端 snapshot 機制。",
             )
         )
         if st.button(
@@ -75,29 +94,67 @@ def render_library_tab() -> None:
             key="generate_vector_backup",
         ):
             try:
-                st.session_state["vector_backup_bytes"] = create_vector_library_backup()
-                st.session_state["vector_backup_name"] = f"ocr_rag_backup_{time.strftime('%Y%m%d_%H%M%S')}.zip"
+                backup_path, backup_size = create_vector_library_backup_file()
+                st.session_state["vector_backup_path"] = backup_path
+                st.session_state["vector_backup_size"] = backup_size
+                st.session_state["vector_backup_name"] = os.path.basename(backup_path)
             except Exception as e:
-                st.session_state.pop("vector_backup_bytes", None)
+                st.session_state.pop("vector_backup_path", None)
+                st.session_state.pop("vector_backup_size", None)
                 st.session_state.pop("vector_backup_name", None)
                 st.error(localized_text(f"Failed to generate backup: {e}", f"生成备份失败：{e}", f"生成備份失敗：{e}"))
 
-        backup_bytes = st.session_state.get("vector_backup_bytes")
-        if backup_bytes:
-            st.download_button(
-                "导出文档库备份",
-                data=backup_bytes,
-                file_name=st.session_state.get("vector_backup_name", "ocr_rag_backup.zip"),
-                mime="application/zip",
-                key="download_vector_backup",
+        backup_path = st.session_state.get("vector_backup_path", "")
+        backup_size = int(st.session_state.get("vector_backup_size", 0) or 0)
+        if backup_path and os.path.isfile(backup_path):
+            st.success(
+                localized_text(
+                    f"Backup ready: {backup_path} ({format_file_size(backup_size)})",
+                    f"备份已生成：{backup_path}（{format_file_size(backup_size)}）",
+                    f"備份已生成：{backup_path}（{format_file_size(backup_size)}）",
+                )
             )
+            if backup_size <= SAFE_BROWSER_DOWNLOAD_BYTES:
+                with open(backup_path, "rb") as backup_handle:
+                    st.download_button(
+                        localized_text("Export Library Backup", "导出文档库备份", "導出文件庫備份"),
+                        data=backup_handle,
+                        file_name=st.session_state.get("vector_backup_name", "ocr_rag_backup.zip"),
+                        mime="application/zip",
+                        key="download_vector_backup",
+                    )
+            else:
+                st.warning(
+                    localized_text(
+                        "This backup is large, so browser download is disabled to avoid exhausting Streamlit memory. Copy the ZIP from the path shown above.",
+                        "该备份文件较大，为避免 Streamlit 内存耗尽，已关闭浏览器下载。请直接复制上方路径中的 ZIP 文件。",
+                        "該備份文件較大，為避免 Streamlit 記憶體耗盡，已關閉瀏覽器下載。請直接複製上方路徑中的 ZIP 文件。",
+                    )
+                )
 
-        backup_file = st.file_uploader("导入备份 ZIP", type=["zip"], key="restore_backup_zip")
-        confirm_restore = st.checkbox("我确认导入备份并覆盖当前文档库", key="confirm_restore_backup")
-        if st.button("导入并覆盖当前文档库", disabled=not backup_file or not confirm_restore, key="restore_vector_backup"):
+        backup_file = st.file_uploader(localized_text("Import Backup ZIP", "导入备份 ZIP", "導入備份 ZIP"), type=["zip"], key="restore_backup_zip")
+        local_backup_path = st.text_input(
+            localized_text("Or import from local ZIP path", "或从本地 ZIP 路径导入", "或從本地 ZIP 路徑導入"),
+            value="",
+            key="restore_backup_local_path",
+            help=localized_text(
+                "Use this when the backup ZIP is too large for browser upload.",
+                "当备份 ZIP 过大、不适合浏览器上传时，可填写本机文件路径。",
+                "當備份 ZIP 過大、不適合瀏覽器上傳時，可填寫本機文件路徑。",
+            ),
+        )
+        confirm_restore = st.checkbox(localized_text("I confirm importing backup and overwriting the current library", "我确认导入备份并覆盖当前文档库", "我確認導入備份並覆蓋當前文件庫"), key="confirm_restore_backup")
+        restore_ready = bool(backup_file or local_backup_path.strip()) and confirm_restore
+        if st.button(localized_text("Import And Overwrite Current Library", "导入并覆盖当前文档库", "導入並覆蓋當前文件庫"), disabled=not restore_ready, key="restore_vector_backup"):
             try:
-                message = restore_vector_library_backup(backup_file)
-                st.success(message)
+                if local_backup_path.strip():
+                    message = restore_vector_library_backup_from_path(local_backup_path)
+                else:
+                    message = restore_vector_library_backup(backup_file)
+                get_file_summary_rows.clear()
+                get_cached_library_counts.clear()
+                st.session_state["library_notice"] = message
+                st.rerun()
             except Exception as e:
                 st.error(localized_text(f"Failed to import backup: {e}", f"导入备份失败：{e}", f"導入備份失敗：{e}"))
 

@@ -115,8 +115,48 @@ def linux_privileged_command(command: List[str]) -> List[str]:
     return ["sudo", "-n", *command]
 
 
+def parse_custom_install_command(command_text: str) -> List[str]:
+    """Parse a user-provided install command into subprocess arguments.
+    将用户填写的安装命令解析为 subprocess 参数。
+    """
+    return shlex.split(command_text, posix=(platform.system() != "Windows"))
+
+
 def get_libreoffice_install_plan() -> Dict[str, Any]:
     system_name = platform.system()
+    install_source = get_libreoffice_install_source()
+    if install_source == "custom_command":
+        command_text = get_custom_libreoffice_install_command()
+        if command_text:
+            try:
+                command = parse_custom_install_command(command_text)
+            except ValueError as e:
+                return {
+                    "platform": system_name or localized_text("Unknown system", "未知系统", "未知系統"),
+                    "source": get_libreoffice_install_source_label(install_source),
+                    "commands": [],
+                    "manual": localized_text(
+                        f"Custom install command cannot be parsed: {e}",
+                        f"自定义安装命令无法解析：{e}",
+                        f"自訂安裝命令無法解析：{e}",
+                    ),
+                }
+            return {
+                "platform": system_name or localized_text("Unknown system", "未知系统", "未知系統"),
+                "source": get_libreoffice_install_source_label(install_source),
+                "commands": [command] if command else [],
+                "manual": command_text,
+            }
+        return {
+            "platform": system_name or localized_text("Unknown system", "未知系统", "未知系統"),
+            "source": get_libreoffice_install_source_label(install_source),
+            "commands": [],
+            "manual": localized_text(
+                "Custom install command is empty. Configure it in Settings > Models And Paths.",
+                "自定义安装命令为空，请先在配置中心 > 模型与路径中填写。",
+                "自訂安裝命令為空，請先在配置中心 > 模型與路徑中填寫。",
+            ),
+        }
 
     if system_name == "Darwin":
         brew = shutil.which("brew")
@@ -124,11 +164,13 @@ def get_libreoffice_install_plan() -> Dict[str, Any]:
             command = [brew, "install", "--cask", "libreoffice"]
             return {
                 "platform": "macOS",
+                "source": get_libreoffice_install_source_label(install_source),
                 "commands": [command],
                 "manual": quote_command(command),
             }
         return {
             "platform": "macOS",
+            "source": get_libreoffice_install_source_label(install_source),
             "commands": [],
             "manual": localized_text(
                 "Install Homebrew first, then run: brew install --cask libreoffice",
@@ -151,6 +193,7 @@ def get_libreoffice_install_plan() -> Dict[str, Any]:
             ]
             return {
                 "platform": "Windows",
+                "source": get_libreoffice_install_source_label(install_source),
                 "commands": [command],
                 "manual": quote_command(command),
             }
@@ -160,12 +203,14 @@ def get_libreoffice_install_plan() -> Dict[str, Any]:
             command = [choco, "install", "libreoffice-fresh", "-y"]
             return {
                 "platform": "Windows",
+                "source": get_libreoffice_install_source_label(install_source),
                 "commands": [command],
                 "manual": quote_command(command),
             }
 
         return {
             "platform": "Windows",
+            "source": get_libreoffice_install_source_label(install_source),
             "commands": [],
             "manual": localized_text(
                 "Install winget or Chocolatey, then run: winget install --id TheDocumentFoundation.LibreOffice -e",
@@ -182,6 +227,7 @@ def get_libreoffice_install_plan() -> Dict[str, Any]:
             ]
             return {
                 "platform": "Linux",
+                "source": get_libreoffice_install_source_label(install_source),
                 "commands": commands,
                 "manual": "sudo apt-get update && sudo apt-get install -y libreoffice",
             }
@@ -190,6 +236,7 @@ def get_libreoffice_install_plan() -> Dict[str, Any]:
             command = linux_privileged_command(["dnf", "install", "-y", "libreoffice"])
             return {
                 "platform": "Linux",
+                "source": get_libreoffice_install_source_label(install_source),
                 "commands": [command],
                 "manual": "sudo dnf install -y libreoffice",
             }
@@ -198,6 +245,7 @@ def get_libreoffice_install_plan() -> Dict[str, Any]:
             command = linux_privileged_command(["yum", "install", "-y", "libreoffice"])
             return {
                 "platform": "Linux",
+                "source": get_libreoffice_install_source_label(install_source),
                 "commands": [command],
                 "manual": "sudo yum install -y libreoffice",
             }
@@ -206,6 +254,7 @@ def get_libreoffice_install_plan() -> Dict[str, Any]:
             command = linux_privileged_command(["zypper", "--non-interactive", "install", "libreoffice"])
             return {
                 "platform": "Linux",
+                "source": get_libreoffice_install_source_label(install_source),
                 "commands": [command],
                 "manual": "sudo zypper --non-interactive install libreoffice",
             }
@@ -214,6 +263,7 @@ def get_libreoffice_install_plan() -> Dict[str, Any]:
             command = linux_privileged_command(["pacman", "-S", "--noconfirm", "libreoffice-still"])
             return {
                 "platform": "Linux",
+                "source": get_libreoffice_install_source_label(install_source),
                 "commands": [command],
                 "manual": "sudo pacman -S --noconfirm libreoffice-still",
             }
@@ -222,12 +272,14 @@ def get_libreoffice_install_plan() -> Dict[str, Any]:
             command = linux_privileged_command(["snap", "install", "libreoffice"])
             return {
                 "platform": "Linux",
+                "source": get_libreoffice_install_source_label(install_source),
                 "commands": [command],
                 "manual": "sudo snap install libreoffice",
             }
 
         return {
             "platform": "Linux",
+            "source": get_libreoffice_install_source_label(install_source),
             "commands": [],
             "manual": localized_text(
                 "Install LibreOffice with your distribution package manager, for example: sudo apt-get install -y libreoffice",
@@ -238,6 +290,7 @@ def get_libreoffice_install_plan() -> Dict[str, Any]:
 
     return {
         "platform": system_name or localized_text("Unknown system", "未知系统", "未知系統"),
+        "source": get_libreoffice_install_source_label(install_source),
         "commands": [],
         "manual": localized_text(
             "No built-in automatic install plan is available for this system. Please install LibreOffice manually.",

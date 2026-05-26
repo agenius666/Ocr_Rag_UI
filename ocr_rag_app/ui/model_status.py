@@ -7,10 +7,11 @@ from .components import *
 
 
 def render_model_status_tab() -> None:
-    st.subheader("模型状态 / 下载查询")
+    st.subheader(localized_text("Model Status / Download Check", "模型状态 / 下载查询", "模型狀態 / 下載查詢"))
     llm_config = get_llm_config()
     qdrant_config = get_qdrant_config()
     active_ocr_config = get_paddleocr_model_config()
+    download_config = get_model_download_config()
     soffice_binary = find_soffice_binary()
     libreoffice_plan = get_libreoffice_install_plan()
     model_rows = [
@@ -33,14 +34,37 @@ def render_model_status_tab() -> None:
             localized_text("Purpose", "用途", "用途"): localized_text("Candidate chunk reranking to improve retrieval precision", "候选片段重排，提升检索精度", "候選片段重排，提升檢索精度"),
         },
         {
+            localized_text("Component", "组件", "組件"): localized_text("Download Sources", "下载来源", "下載來源"),
+            localized_text("Status", "状态", "狀態"): (
+                localized_text("BGE-M3 / reranker: ", "BGE-M3 / Reranker：", "BGE-M3 / Reranker：")
+                + download_config["source_label"]
+                + "; "
+                + localized_text("HF endpoint: ", "HF 端点：", "HF 端點：")
+                + download_config["hf_endpoint"]
+                + "; "
+                + localized_text("PaddleOCR: ", "PaddleOCR：", "PaddleOCR：")
+                + download_config["paddleocr_source_label"]
+            ),
+            localized_text("Purpose", "用途", "用途"): localized_text(
+                "Model download source routing",
+                "模型下载来源路由",
+                "模型下載來源路由",
+            ),
+        },
+        {
             localized_text("Component", "组件", "組件"): "LibreOffice / soffice",
             localized_text("Status", "状态", "狀態"): (
-                localized_text(f"Installed: {soffice_binary}", f"已安装：{soffice_binary}", f"已安裝：{soffice_binary}")
+                localized_text("Install source: ", "安装来源：", "安裝來源：")
+                + download_config["libreoffice_install_source_label"]
+                + "; "
+                + (
+                    localized_text(f"Installed: {soffice_binary}", f"已安装：{soffice_binary}", f"已安裝：{soffice_binary}")
                 if soffice_binary
                 else localized_text(
                     f"Not detected; automatic installation plan: {libreoffice_plan.get('manual', 'None')}",
                     f"未检测到；自动安装方案：{libreoffice_plan.get('manual', '无')}",
                     f"未檢測到；自動安裝方案：{libreoffice_plan.get('manual', '無')}",
+                )
                 )
             ),
             localized_text("Purpose", "用途", "用途"): localized_text("DOC/PPT/XLS legacy Office file conversion", "DOC/PPT/XLS 老版 Office 文件转换", "DOC/PPT/XLS 舊版 Office 文件轉換"),
@@ -80,11 +104,11 @@ def render_model_status_tab() -> None:
     ]
     st.dataframe(model_rows, width="stretch")
 
-    st.markdown("### 操作")
+    st.markdown(localized_text("### Actions", "### 操作", "### 操作"))
 
     with st.container(border=True):
-        st.markdown("#### 内存管理")
-        if st.button("释放 OCR / BGE-M3 / Reranker 模型缓存", key="clear_model_cache"):
+        st.markdown(localized_text("#### Memory Management", "#### 内存管理", "#### 記憶體管理"))
+        if st.button(localized_text("Release OCR / BGE-M3 / Reranker Model Cache", "释放 OCR / BGE-M3 / Reranker 模型缓存", "釋放 OCR / BGE-M3 / Reranker 模型快取"), key="clear_model_cache"):
             try:
                 load_ocr_model.clear()
                 load_embedding_model.clear()
@@ -198,6 +222,10 @@ def render_model_status_tab() -> None:
                     st.write(
                         localized_text("Current system: ", "当前系统：", "當前系統：")
                         + str(libreoffice_plan.get("platform", localized_text("Unknown system", "未知系统", "未知系統")))
+                    )
+                    st.write(
+                        localized_text("Install source: ", "安装来源：", "安裝來源：")
+                        + str(libreoffice_plan.get("source", localized_text("System Package Manager", "系统包管理器", "系統套件管理器")))
                     )
                     st.write(
                         localized_text("Install command: ", "安装命令：", "安裝命令：")

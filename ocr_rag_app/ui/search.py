@@ -34,7 +34,11 @@ def render_search_tab() -> None:
                 value=get_int_config("rag_top_k", DEFAULT_RAG_TOP_K),
                 step=1,
                 key="search_top_k",
-                help="普通问答建议 3-5，太大会把弱相关片段带进上下文。",
+                help=localized_text(
+                    "For normal Q&A, 3-5 chunks is usually enough. Larger values may add weakly related context.",
+                    "普通问答建议 3-5，太大会把弱相关片段带进上下文。",
+                    "普通問答建議 3-5，太大會把弱相關片段帶進上下文。",
+                ),
             )
             set_config_value("rag_top_k", top_k)
         with setting_col3:
@@ -59,7 +63,11 @@ def render_search_tab() -> None:
                 value=get_int_config("rag_context_turns", DEFAULT_CONTEXT_TURNS),
                 step=1,
                 key="rag_context_turns_input",
-                help="只把最近 N 轮对话放进模型上下文；历史仍会保存在数据库。",
+                help=localized_text(
+                    "Only the latest N conversation turns are sent to the model context. Full history remains saved in the database.",
+                    "只把最近 N 轮对话放进模型上下文；历史仍会保存在数据库。",
+                    "只把最近 N 輪對話放進模型上下文；歷史仍會保存在資料庫。",
+                ),
             )
             set_config_value("rag_context_turns", rag_context_turns)
 
@@ -67,7 +75,11 @@ def render_search_tab() -> None:
             "未检索到资料时使用本地大模型普通聊天",
             value=get_bool_config("rag_allow_general_fallback", True),
             key="rag_allow_general_fallback_input",
-            help="当向量库无匹配结果时，允许模型按通用对话方式回复；涉及本地文档的问题仍以入库检索结果为准。",
+            help=localized_text(
+                "When no vector-store evidence is found, allow a general LLM reply. Questions about local documents should still rely on ingested retrieval results.",
+                "当向量库无匹配结果时，允许模型按通用对话方式回复；涉及本地文档的问题仍以入库检索结果为准。",
+                "當向量庫無匹配結果時，允許模型按通用對話方式回覆；涉及本地文件的問題仍以入庫檢索結果為準。",
+            ),
         )
         set_bool_config("rag_allow_general_fallback", allow_general_fallback)
 
@@ -77,14 +89,22 @@ def render_search_tab() -> None:
                 "追问补全成完整检索问题",
                 value=get_bool_config("rag_query_rewrite", True),
                 key="rag_query_rewrite_input",
-                help="多轮对话中把追问补全成完整问题后再检索。",
+                help=localized_text(
+                    "In multi-turn chat, complete follow-up questions into standalone retrieval queries before searching.",
+                    "多轮对话中把追问补全成完整问题后再检索。",
+                    "多輪對話中把追問補全成完整問題後再檢索。",
+                ),
             )
             set_bool_config("rag_query_rewrite", rag_query_rewrite)
             rag_query_decompose = st.checkbox(
                 "复杂问题拆解后分别检索",
                 value=get_bool_config("rag_query_decompose", DEFAULT_QUERY_DECOMPOSE),
                 key="rag_query_decompose_input",
-                help="问题包含多个事项时，会拆成子问题分别检索后合并证据。",
+                help=localized_text(
+                    "When a question contains multiple topics, split it into sub-queries, retrieve separately, then merge evidence.",
+                    "问题包含多个事项时，会拆成子问题分别检索后合并证据。",
+                    "問題包含多個事項時，會拆成子問題分別檢索後合併證據。",
+                ),
             )
             set_bool_config("rag_query_decompose", rag_query_decompose)
         with threshold_col:
@@ -92,7 +112,11 @@ def render_search_tab() -> None:
                 "启用向量距离阈值过滤",
                 value=get_bool_config("rag_use_distance_threshold", True),
                 key="rag_use_distance_threshold_input",
-                help="过滤距离过大的弱相关片段；如果经常召回不到，可调大右侧阈值。",
+                help=localized_text(
+                    "Filter weakly related chunks with large vector distance. Increase the threshold if too little evidence is retrieved.",
+                    "过滤距离过大的弱相关片段；如果经常召回不到，可调大右侧阈值。",
+                    "過濾距離過大的弱相關片段；如果經常召回不到，可調大右側閾值。",
+                ),
             )
             set_bool_config("rag_use_distance_threshold", rag_use_distance_threshold)
         with distance_col:
@@ -113,7 +137,11 @@ def render_search_tab() -> None:
                 "启用混合检索",
                 value=get_bool_config("rag_use_hybrid", DEFAULT_USE_HYBRID_SEARCH),
                 key="rag_use_hybrid_input",
-                help="同时使用向量语义检索和关键词检索，适合制度编号、部门名称、文件名等精确命中。",
+                help=localized_text(
+                    "Use both semantic vector retrieval and keyword retrieval. Useful for policy numbers, department names, and file names.",
+                    "同时使用向量语义检索和关键词检索，适合制度编号、部门名称、文件名等精确命中。",
+                    "同時使用向量語義檢索和關鍵詞檢索，適合制度編號、部門名稱、文件名等精確命中。",
+                ),
             )
             set_bool_config("rag_use_hybrid", rag_use_hybrid)
         with strategy_col2:
@@ -121,7 +149,11 @@ def render_search_tab() -> None:
                 "启用重排模型",
                 value=get_bool_config("rag_use_reranker", DEFAULT_USE_RERANKER),
                 key="rag_use_reranker_input",
-                help="先多召回，再用 BGE reranker 重排；更准但会增加内存和耗时。",
+                help=localized_text(
+                    "Retrieve more candidates first, then rerank with the BGE reranker. It is more precise but uses more memory and time.",
+                    "先多召回，再用 BGE reranker 重排；更准但会增加内存和耗时。",
+                    "先多召回，再用 BGE reranker 重排；更準但會增加記憶體和耗時。",
+                ),
             )
             set_bool_config("rag_use_reranker", rag_use_reranker)
         with strategy_col3:
@@ -132,7 +164,11 @@ def render_search_tab() -> None:
                 value=min(max(get_int_config("rag_fetch_k", DEFAULT_RETRIEVAL_FETCH_K), top_k), 50),
                 step=1,
                 key="rag_fetch_k_input",
-                help="用于混合检索和重排的候选数量。",
+                help=localized_text(
+                    "Candidate count used for hybrid retrieval and reranking.",
+                    "用于混合检索和重排的候选数量。",
+                    "用於混合檢索和重排的候選數量。",
+                ),
             )
             set_config_value("rag_fetch_k", rag_fetch_k)
 

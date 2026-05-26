@@ -61,6 +61,9 @@ ENV_FILE = ".env"
 APP_DB_FILE = "app_state.sqlite3"
 UPLOAD_DIR = "uploads"
 QDRANT_DIR = "qdrant_db"
+BACKUP_DIR = "backups"
+BACKUP_MANIFEST_NAME = "manifest.json"
+BACKUP_INGESTED_FILES_NAME = "ingested_files.json"
 COLLECTION_NAME = "ocr_rag_docs"
 VECTOR_SIZE = 1024
 DEFAULT_QDRANT_MODE = "local"
@@ -76,6 +79,63 @@ DEFAULT_PADDLEOCR_CACHE_DIR = os.path.join(DEFAULT_MODEL_CACHE_ROOT, "paddlex")
 DEFAULT_BGE_CACHE_DIR = os.path.join(DEFAULT_MODEL_CACHE_ROOT, "bge-m3")
 DEFAULT_RERANKER_CACHE_DIR = os.path.join(DEFAULT_MODEL_CACHE_ROOT, "bge-reranker-v2-m3")
 DEFAULT_SOFFICE_BINARY_PATH = ""
+DEFAULT_MODEL_DOWNLOAD_SOURCE = "huggingface"
+DEFAULT_CUSTOM_HF_ENDPOINT = ""
+DEFAULT_PADDLEOCR_MODEL_SOURCE = "huggingface"
+DEFAULT_LIBREOFFICE_INSTALL_SOURCE = "system"
+DEFAULT_CUSTOM_LIBREOFFICE_INSTALL_COMMAND = ""
+HF_MIRROR_ENDPOINT = "https://hf-mirror.com"
+MODEL_DOWNLOAD_SOURCE_OPTIONS = {
+    "huggingface": {
+        "en": "Hugging Face Official",
+        "zh_CN": "Hugging Face 官方",
+        "zh_TW": "Hugging Face 官方",
+    },
+    "hf_mirror": {
+        "en": "HF Mirror",
+        "zh_CN": "HF Mirror 镜像",
+        "zh_TW": "HF Mirror 鏡像",
+    },
+    "custom": {
+        "en": "Custom Hugging Face Endpoint",
+        "zh_CN": "自定义 Hugging Face Endpoint",
+        "zh_TW": "自訂 Hugging Face Endpoint",
+    },
+}
+PADDLEOCR_MODEL_SOURCE_OPTIONS = {
+    "huggingface": {
+        "en": "Hugging Face / PaddlePaddle",
+        "zh_CN": "Hugging Face / PaddlePaddle",
+        "zh_TW": "Hugging Face / PaddlePaddle",
+    },
+    "modelscope": {
+        "en": "ModelScope",
+        "zh_CN": "ModelScope 魔搭",
+        "zh_TW": "ModelScope 魔搭",
+    },
+    "aistudio": {
+        "en": "Baidu AIStudio",
+        "zh_CN": "百度 AIStudio",
+        "zh_TW": "百度 AIStudio",
+    },
+    "bos": {
+        "en": "Paddle BOS",
+        "zh_CN": "Paddle BOS",
+        "zh_TW": "Paddle BOS",
+    },
+}
+LIBREOFFICE_INSTALL_SOURCE_OPTIONS = {
+    "system": {
+        "en": "System Package Manager",
+        "zh_CN": "系统包管理器",
+        "zh_TW": "系統套件管理器",
+    },
+    "custom_command": {
+        "en": "Custom Install Command",
+        "zh_CN": "自定义安装命令",
+        "zh_TW": "自訂安裝命令",
+    },
+}
 
 DEFAULT_LLM_BASE_URL = "http://127.0.0.1:27292/v1"
 DEFAULT_LLM_API_KEY = "EMPTY"
@@ -317,6 +377,9 @@ class AppDatabase:
 
     def execute(self, *args, **kwargs):
         return self._connection().execute(*args, **kwargs)
+
+    def executemany(self, *args, **kwargs):
+        return self._connection().executemany(*args, **kwargs)
 
     def commit(self) -> None:
         try:
@@ -1377,6 +1440,49 @@ def list_ingested_files() -> List[Dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def replace_ingested_file_records(records: List[Dict[str, Any]]) -> int:
+    """Replace SHA256 deduplication records with backup contents.
+    使用备份内容替换 SHA256 去重记录。
+    """
+    normalized_records = []
+    now = current_timestamp()
+    for record in records:
+        sha256 = str(record.get("sha256") or record.get("file_sha256") or "").strip()
+        if not sha256:
+            continue
+        normalized_records.append(
+            (
+                sha256,
+                str(record.get("file_name") or ""),
+                str(record.get("doc_category") or "general"),
+                str(record.get("doc_label") or record.get("file_name") or ""),
+                int(record.get("chunk_count") or 0),
+                float(record.get("created_at") or now),
+                float(record.get("updated_at") or now),
+            )
+        )
+
+    with APP_DB_LOCK:
+        app_db.execute("DELETE FROM ingested_files")
+        app_db.executemany(
+            """
+            INSERT INTO ingested_files
+                (sha256, file_name, doc_category, doc_label, chunk_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(sha256) DO UPDATE SET
+                file_name = excluded.file_name,
+                doc_category = excluded.doc_category,
+                doc_label = excluded.doc_label,
+                chunk_count = excluded.chunk_count,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at
+            """,
+            normalized_records,
+        )
+        app_db.commit()
+    return len(normalized_records)
+
+
 def get_ingested_file_chunk_counts() -> Dict[str, int]:
     """Return chunk counts from SQLite ingestion records.
     从 SQLite 入库记录读取 chunk 统计，避免每次页面重跑都扫描向量库。
@@ -1844,6 +1950,11 @@ def reset_app_state_database() -> None:
     set_config_value("bge_cache_dir", "")
     set_config_value("reranker_cache_dir", "")
     set_config_value("soffice_binary_path", DEFAULT_SOFFICE_BINARY_PATH)
+    set_config_value("model_download_source", DEFAULT_MODEL_DOWNLOAD_SOURCE)
+    set_config_value("custom_hf_endpoint", DEFAULT_CUSTOM_HF_ENDPOINT)
+    set_config_value("paddleocr_model_source", DEFAULT_PADDLEOCR_MODEL_SOURCE)
+    set_config_value("libreoffice_install_source", DEFAULT_LIBREOFFICE_INSTALL_SOURCE)
+    set_config_value("custom_libreoffice_install_command", DEFAULT_CUSTOM_LIBREOFFICE_INSTALL_COMMAND)
     set_config_value("qdrant_mode", DEFAULT_QDRANT_MODE)
     set_config_value("qdrant_local_path", DEFAULT_QDRANT_LOCAL_PATH)
     set_config_value("qdrant_url", DEFAULT_QDRANT_URL)
@@ -1923,6 +2034,11 @@ def reset_app_state_database() -> None:
         "bge_cache_dir_input",
         "reranker_cache_dir_input",
         "soffice_binary_path_input",
+        "model_download_source_select",
+        "custom_hf_endpoint_input",
+        "paddleocr_model_source_select",
+        "libreoffice_install_source_select",
+        "custom_libreoffice_install_command_input",
         "qdrant_mode_label",
         "qdrant_local_path_input",
         "qdrant_url_input",
@@ -1956,6 +2072,170 @@ def get_configured_soffice_path() -> str:
     return normalize_local_path(get_config_value("soffice_binary_path", DEFAULT_SOFFICE_BINARY_PATH), "")
 
 
+def get_model_download_source() -> str:
+    source = get_config_value("model_download_source", DEFAULT_MODEL_DOWNLOAD_SOURCE)
+    return source if source in MODEL_DOWNLOAD_SOURCE_OPTIONS else DEFAULT_MODEL_DOWNLOAD_SOURCE
+
+
+def get_paddleocr_model_source() -> str:
+    source = get_config_value("paddleocr_model_source", DEFAULT_PADDLEOCR_MODEL_SOURCE)
+    return source if source in PADDLEOCR_MODEL_SOURCE_OPTIONS else DEFAULT_PADDLEOCR_MODEL_SOURCE
+
+
+def get_libreoffice_install_source() -> str:
+    source = get_config_value("libreoffice_install_source", DEFAULT_LIBREOFFICE_INSTALL_SOURCE)
+    return source if source in LIBREOFFICE_INSTALL_SOURCE_OPTIONS else DEFAULT_LIBREOFFICE_INSTALL_SOURCE
+
+
+def get_custom_hf_endpoint() -> str:
+    return get_config_value("custom_hf_endpoint", DEFAULT_CUSTOM_HF_ENDPOINT).strip().rstrip("/")
+
+
+def get_custom_libreoffice_install_command() -> str:
+    return get_config_value(
+        "custom_libreoffice_install_command",
+        DEFAULT_CUSTOM_LIBREOFFICE_INSTALL_COMMAND,
+    ).strip()
+
+
+def get_active_hf_endpoint() -> str:
+    source = get_model_download_source()
+    if source == "hf_mirror":
+        return HF_MIRROR_ENDPOINT
+    if source == "custom":
+        return get_custom_hf_endpoint()
+    return ""
+
+
+def get_model_download_source_label(source: Optional[str] = None) -> str:
+    source = source or get_model_download_source()
+    option = MODEL_DOWNLOAD_SOURCE_OPTIONS.get(source, MODEL_DOWNLOAD_SOURCE_OPTIONS[DEFAULT_MODEL_DOWNLOAD_SOURCE])
+    return localized_text(option["en"], option["zh_CN"], option["zh_TW"])
+
+
+def get_paddleocr_model_source_label(source: Optional[str] = None) -> str:
+    source = source or get_paddleocr_model_source()
+    option = PADDLEOCR_MODEL_SOURCE_OPTIONS.get(source, PADDLEOCR_MODEL_SOURCE_OPTIONS[DEFAULT_PADDLEOCR_MODEL_SOURCE])
+    return localized_text(option["en"], option["zh_CN"], option["zh_TW"])
+
+
+def get_libreoffice_install_source_label(source: Optional[str] = None) -> str:
+    source = source or get_libreoffice_install_source()
+    option = LIBREOFFICE_INSTALL_SOURCE_OPTIONS.get(source, LIBREOFFICE_INSTALL_SOURCE_OPTIONS[DEFAULT_LIBREOFFICE_INSTALL_SOURCE])
+    return localized_text(option["en"], option["zh_CN"], option["zh_TW"])
+
+
+def get_model_download_config() -> Dict[str, str]:
+    source = get_model_download_source()
+    endpoint = get_active_hf_endpoint()
+    paddle_source = get_paddleocr_model_source()
+    libreoffice_source = get_libreoffice_install_source()
+    return {
+        "source": source,
+        "source_label": get_model_download_source_label(source),
+        "hf_endpoint": endpoint or "https://huggingface.co",
+        "custom_hf_endpoint": get_custom_hf_endpoint(),
+        "paddleocr_source": paddle_source,
+        "paddleocr_source_label": get_paddleocr_model_source_label(paddle_source),
+        "paddleocr_hf_endpoint": endpoint or "https://huggingface.co",
+        "libreoffice_install_source": libreoffice_source,
+        "libreoffice_install_source_label": get_libreoffice_install_source_label(libreoffice_source),
+        "custom_libreoffice_install_command": get_custom_libreoffice_install_command(),
+    }
+
+
+def apply_model_download_environment() -> None:
+    """Apply configured model download source settings for future downloads.
+    应用模型下载源配置，影响后续模型下载。
+    """
+    endpoint = get_active_hf_endpoint()
+    if endpoint:
+        os.environ["HF_ENDPOINT"] = endpoint
+    else:
+        os.environ.pop("HF_ENDPOINT", None)
+    paddle_source = get_paddleocr_model_source()
+    os.environ["PADDLE_PDX_MODEL_SOURCE"] = paddle_source
+    os.environ["PADDLE_PDX_HUGGING_FACE_ENDPOINT"] = endpoint or "https://huggingface.co"
+    refresh_paddlex_download_runtime()
+
+
+def refresh_paddlex_download_runtime() -> None:
+    """Refresh PaddleX module-level download flags after settings change.
+    设置变更后刷新 PaddleX 模块级下载参数。
+    """
+    paddle_source = get_paddleocr_model_source()
+    hf_endpoint = get_active_hf_endpoint() or "https://huggingface.co"
+
+    flags_module = sys.modules.get("paddlex.utils.flags")
+    if flags_module:
+        flags_module.MODEL_SOURCE = paddle_source
+        flags_module.HUGGING_FACE_ENDPOINT = hf_endpoint
+
+    official_models_module = sys.modules.get("paddlex.inference.utils.official_models")
+    if official_models_module:
+        official_models_module.MODEL_SOURCE = paddle_source
+        official_models_module.HUGGING_FACE_ENDPOINT = hf_endpoint
+        hoster_cls = getattr(official_models_module, "_HuggingFaceModelHoster", None)
+        if hoster_cls:
+            hoster_cls.healthcheck_url = hf_endpoint
+        manager = getattr(official_models_module, "official_models", None)
+        if manager:
+            manager._hosters = None
+
+
+def save_model_download_config(
+    source: str,
+    custom_endpoint: str,
+    paddleocr_source: Optional[str] = None,
+    libreoffice_source: Optional[str] = None,
+    custom_libreoffice_command: Optional[str] = None,
+) -> None:
+    source = source if source in MODEL_DOWNLOAD_SOURCE_OPTIONS else DEFAULT_MODEL_DOWNLOAD_SOURCE
+    paddleocr_source = (
+        paddleocr_source
+        if paddleocr_source in PADDLEOCR_MODEL_SOURCE_OPTIONS
+        else get_paddleocr_model_source()
+    )
+    libreoffice_source = (
+        libreoffice_source
+        if libreoffice_source in LIBREOFFICE_INSTALL_SOURCE_OPTIONS
+        else get_libreoffice_install_source()
+    )
+    custom_endpoint = (custom_endpoint or "").strip().rstrip("/")
+    custom_libreoffice_command = (custom_libreoffice_command or "").strip()
+    if source == "custom":
+        parsed_endpoint = urlparse(custom_endpoint)
+        if parsed_endpoint.scheme not in {"http", "https"} or not parsed_endpoint.netloc:
+            raise ValueError(
+                localized_text(
+                    "Custom Hugging Face endpoint must start with http:// or https://.",
+                    "自定义 Hugging Face Endpoint 必须以 http:// 或 https:// 开头。",
+                    "自訂 Hugging Face Endpoint 必須以 http:// 或 https:// 開頭。",
+                )
+            )
+    if libreoffice_source == "custom_command" and not custom_libreoffice_command:
+        raise ValueError(
+            localized_text(
+                "Custom LibreOffice install command cannot be empty.",
+                "自定义 LibreOffice 安装命令不能为空。",
+                "自訂 LibreOffice 安裝命令不能為空。",
+            )
+        )
+    set_config_value("model_download_source", source)
+    set_config_value("custom_hf_endpoint", custom_endpoint)
+    set_config_value("paddleocr_model_source", paddleocr_source)
+    set_config_value("libreoffice_install_source", libreoffice_source)
+    set_config_value("custom_libreoffice_install_command", custom_libreoffice_command)
+    apply_model_download_environment()
+    try:
+        load_ocr_model.clear()
+        load_embedding_model.clear()
+        load_reranker_model.clear()
+    except Exception:
+        pass
+    release_memory_after_file()
+
+
 def ensure_model_cache_dirs() -> None:
     for path in [
         get_model_cache_root(),
@@ -1968,26 +2248,33 @@ def ensure_model_cache_dirs() -> None:
 
 
 def refresh_paddlex_cache_runtime() -> None:
-    cache_module = sys.modules.get("paddlex.utils.cache")
-    if not cache_module:
-        return
-
     cache_dir = get_paddleocr_cache_dir()
-    cache_module.CACHE_DIR = cache_dir
-    cache_module.FUNC_CACHE_DIR = os.path.join(cache_dir, "func_ret")
-    cache_module.FILE_LOCK_DIR = os.path.join(cache_dir, "locks")
-    cache_module.TEMP_DIR = os.path.join(cache_dir, "temp")
-    for path in [
-        cache_module.CACHE_DIR,
-        cache_module.FUNC_CACHE_DIR,
-        cache_module.FILE_LOCK_DIR,
-        cache_module.TEMP_DIR,
-    ]:
-        os.makedirs(path, exist_ok=True)
+    cache_module = sys.modules.get("paddlex.utils.cache")
+    if cache_module:
+        cache_module.CACHE_DIR = cache_dir
+        cache_module.FUNC_CACHE_DIR = os.path.join(cache_dir, "func_ret")
+        cache_module.FILE_LOCK_DIR = os.path.join(cache_dir, "locks")
+        cache_module.TEMP_DIR = os.path.join(cache_dir, "temp")
+        for path in [
+            cache_module.CACHE_DIR,
+            cache_module.FUNC_CACHE_DIR,
+            cache_module.FILE_LOCK_DIR,
+            cache_module.TEMP_DIR,
+        ]:
+            os.makedirs(path, exist_ok=True)
+
+    official_models_module = sys.modules.get("paddlex.inference.utils.official_models")
+    if official_models_module:
+        official_models_module.CACHE_DIR = cache_dir
+        manager = getattr(official_models_module, "official_models", None)
+        if manager:
+            manager._save_dir = Path(cache_dir) / "official_models"
+            manager._hosters = None
 
 
 def apply_model_cache_environment() -> None:
     ensure_model_cache_dirs()
+    apply_model_download_environment()
     os.environ["PADDLE_PDX_CACHE_HOME"] = get_paddleocr_cache_dir()
     os.environ["HF_HOME"] = os.path.join(get_model_cache_root(), "huggingface")
     os.environ["SENTENCE_TRANSFORMERS_HOME"] = get_model_cache_root()
@@ -2118,10 +2405,16 @@ def load_ocr_model():
     use_textline_orientation=True 用于处理文字方向。
     lang='ch' 适合中文，也能识别一部分英文。
     """
-    cache_key = ("ocr", get_paddleocr_model_label(), get_paddleocr_cache_dir())
+    cache_key = (
+        "ocr",
+        get_paddleocr_model_label(),
+        get_paddleocr_cache_dir(),
+        get_paddleocr_model_source(),
+        get_active_hf_endpoint(),
+    )
 
     def factory() -> Any:
-        os.environ["PADDLE_PDX_CACHE_HOME"] = get_paddleocr_cache_dir()
+        apply_model_cache_environment()
         from paddleocr import PaddleOCR
 
         ocr_config = get_paddleocr_model_config()
@@ -2151,9 +2444,10 @@ def load_embedding_model():
     BAAI/bge-m3 embedding 模型。
     第一次运行会下载模型，速度取决于网络。
     """
-    cache_key = ("bge", get_bge_cache_dir())
+    cache_key = ("bge", get_bge_cache_dir(), get_active_hf_endpoint())
 
     def factory() -> Any:
+        apply_model_download_environment()
         from sentence_transformers import SentenceTransformer
 
         model_source = (
@@ -2178,9 +2472,10 @@ load_embedding_model.clear = clear_embedding_model_cache
 
 
 def load_reranker_model():
-    cache_key = ("reranker", get_reranker_cache_dir())
+    cache_key = ("reranker", get_reranker_cache_dir(), get_active_hf_endpoint())
 
     def factory() -> Any:
+        apply_model_download_environment()
         from sentence_transformers import CrossEncoder
 
         model_source = (
@@ -2422,22 +2717,46 @@ def qdrant_scroll_points(
     client: Optional[Any] = None,
 ) -> List[Any]:
     points = []
+    for point in iter_qdrant_points(
+        where=where,
+        batch_size=min(limit, 256) if limit and limit > 0 else 256,
+        with_payload=with_payload,
+        with_vectors=with_vectors,
+        client=client,
+    ):
+        points.append(point)
+        if limit and limit > 0 and len(points) >= limit:
+            break
+    return points[:limit] if limit and limit > 0 else points
+
+
+def iter_qdrant_points(
+    where: Optional[Dict[str, Any]] = None,
+    batch_size: int = 256,
+    with_payload: bool = True,
+    with_vectors: bool = False,
+    client: Optional[Any] = None,
+) -> Iterator[Any]:
+    """Stream points from Qdrant without keeping the whole collection in memory.
+    以迭代方式读取 Qdrant point，避免一次性把整个集合放入内存。
+    """
     next_page = None
     scroll_filter = build_qdrant_filter(where)
     active_client = client or vector_client
+    batch_size = max(1, min(int(batch_size or 256), 1024))
     while True:
         batch, next_page = active_client.scroll(
             collection_name=COLLECTION_NAME,
             scroll_filter=scroll_filter,
-            limit=min(limit, 256),
+            limit=batch_size,
             offset=next_page,
             with_payload=with_payload,
             with_vectors=with_vectors,
         )
-        points.extend(batch)
-        if next_page is None or len(points) >= limit:
+        for point in batch:
+            yield point
+        if next_page is None:
             break
-    return points[:limit]
 
 
 def migrate_local_qdrant_to_http(
@@ -2721,44 +3040,64 @@ from .rag_pipeline import *  # noqa: F401,F403
 
 @st.cache_data(ttl=10, show_spinner=False)
 def get_file_summary_rows(language_code: str = "") -> List[Dict[str, Any]]:
-    points = qdrant_scroll_points(limit=100000)
-    rows_by_key = {}
-    for point in points:
-        payload = point_payload(point)
-        metadata = dict(payload)
-        metadata.pop("document", None)
-        if not metadata:
-            continue
-        key = (
-            metadata.get("doc_id", ""),
-            metadata.get("file_name", ""),
-            metadata.get("doc_category", ""),
-        )
-        row = rows_by_key.setdefault(
-            key,
-            {
-                "source_file": metadata.get("file_name", source_label("unknown_file")),
-                "document_type": translate_text(metadata.get("doc_category_name", source_label("unknown_type"))),
-                "source_format": metadata.get("source_type", source_label("unknown_type")),
-                "sha256": str(metadata.get("file_sha256", ""))[:16],
-                "chunk_count": 0,
-            },
-        )
-        row["chunk_count"] += 1
-
+    """Return file-level summary rows from SQLite instead of scanning Qdrant.
+    从 SQLite 返回文件级摘要，避免打开摘要时扫描整个 Qdrant 向量库。
+    """
     return [
         {
-            source_label("source_file"): row["source_file"],
-            source_label("document_type"): row["document_type"],
-            localized_text("Source Format", "来源格式", "來源格式"): row["source_format"],
-            localized_text("Chunk Count", "chunk 数", "chunk 數"): row["chunk_count"],
-            "SHA256": row["sha256"],
+            source_label("source_file"): item["file_name"],
+            source_label("document_type"): translate_text(DOC_CATEGORY_NAMES.get(item["doc_category"], item["doc_category"])),
+            localized_text("Source Format", "来源格式", "來源格式"): os.path.splitext(item["file_name"])[1].lstrip(".").lower() or source_label("unknown_type"),
+            localized_text("Chunk Count", "chunk 数", "chunk 數"): int(item["chunk_count"] or 0),
+            "SHA256": str(item["sha256"])[:16],
         }
-        for row in rows_by_key.values()
+        for item in list_ingested_files()
     ]
 
 
-def create_vector_library_backup() -> bytes:
+def ensure_local_qdrant_mode_for_backup(action: str) -> str:
+    """Return the local Qdrant path or raise when HTTP mode is active.
+    返回本地 Qdrant 路径；若当前为 HTTP 模式则抛出清晰错误。
+    """
+    qdrant_config = get_qdrant_config()
+    if qdrant_config["mode"] != "local":
+        raise RuntimeError(
+            localized_text(
+                f"Vector store {action} currently supports Local Qdrant only. For Docker/HTTP Qdrant, use the Qdrant server's own snapshot/backup mechanism or migrate data to Local mode first.",
+                f"向量库{action}当前仅支持本地 Qdrant。Docker/HTTP Qdrant 请使用 Qdrant 服务端自带的 snapshot/backup，或先把数据迁移到本地模式。",
+                f"向量庫{action}目前僅支援本地 Qdrant。Docker/HTTP Qdrant 請使用 Qdrant 服務端自帶的 snapshot/backup，或先把資料遷移到本地模式。",
+            )
+        )
+    return qdrant_config["local_path"]
+
+
+def rebuild_ingested_file_records_from_qdrant() -> int:
+    """Rebuild SQLite deduplication records from Qdrant payload metadata.
+    根据 Qdrant payload 元数据重建 SQLite 去重记录。
+    """
+    rows_by_sha: Dict[str, Dict[str, Any]] = {}
+    for point in iter_qdrant_points(with_payload=True, with_vectors=False, batch_size=512):
+        payload = point_payload(point)
+        sha256 = str(payload.get("file_sha256") or "").strip()
+        if not sha256:
+            continue
+        row = rows_by_sha.setdefault(
+            sha256,
+            {
+                "sha256": sha256,
+                "file_name": str(payload.get("file_name") or ""),
+                "doc_category": str(payload.get("doc_category") or "general"),
+                "doc_label": str(payload.get("doc_label") or payload.get("file_name") or ""),
+                "chunk_count": 0,
+                "created_at": current_timestamp(),
+                "updated_at": current_timestamp(),
+            },
+        )
+        row["chunk_count"] += 1
+    return replace_ingested_file_records(list(rows_by_sha.values()))
+
+
+def create_vector_library_backup_file(output_dir: str = BACKUP_DIR) -> Tuple[str, int]:
     def backup_permission_error(file_path: str) -> RuntimeError:
         return RuntimeError(
             localized_text(
@@ -2784,26 +3123,90 @@ def create_vector_library_backup() -> bytes:
                 raise backup_permission_error(file_path) from exc
             raise
 
-    output = io.BytesIO()
-    source_qdrant_dir = get_qdrant_config()["local_path"]
-    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
-        if os.path.isdir(source_qdrant_dir):
-            state = get_qdrant_singleton_state()
-            with state["lock"]:
-                for root, dirs, files in os.walk(source_qdrant_dir):
-                    dirs[:] = [name for name in dirs if name != "__MACOSX"]
-                    for file_name in files:
-                        file_path = os.path.join(root, file_name)
-                        archive_name = os.path.join(QDRANT_DIR, os.path.relpath(file_path, source_qdrant_dir))
-                        write_backup_file(archive, file_path, archive_name)
-    return output.getvalue()
+    source_qdrant_dir = ensure_local_qdrant_mode_for_backup(
+        localized_text("backup", "备份", "備份")
+    )
+    if not os.path.isdir(source_qdrant_dir):
+        raise FileNotFoundError(
+            localized_text(
+                f"Qdrant directory was not found: {source_qdrant_dir}",
+                f"未找到 Qdrant 目录：{source_qdrant_dir}",
+                f"未找到 Qdrant 目錄：{source_qdrant_dir}",
+            )
+        )
+
+    try:
+        close_qdrant_singleton()
+        load_qdrant_client.clear()
+    except Exception:
+        pass
+    gc.collect()
+
+    os.makedirs(output_dir, exist_ok=True)
+    backup_path = os.path.abspath(
+        os.path.join(output_dir, f"ocr_rag_backup_{time.strftime('%Y%m%d_%H%M%S')}.zip")
+    )
+    temp_backup_path = backup_path + ".tmp"
+    manifest = {
+        "format": "ocr_rag_qdrant_backup",
+        "version": 2,
+        "created_at": current_timestamp(),
+        "collection_name": COLLECTION_NAME,
+        "vector_size": VECTOR_SIZE,
+        "qdrant_dir": QDRANT_DIR,
+        "contains": [QDRANT_DIR, BACKUP_INGESTED_FILES_NAME],
+        "notes": {
+            "en": "ingested_files.json restores both deduplication records and file summary rows.",
+            "zh_CN": "ingested_files.json 同时用于恢复去重记录和文件摘要。",
+            "zh_TW": "ingested_files.json 同時用於恢復去重記錄和文件摘要。",
+        },
+    }
+    try:
+        with zipfile.ZipFile(temp_backup_path, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
+            archive.writestr(
+                BACKUP_MANIFEST_NAME,
+                json.dumps(manifest, ensure_ascii=False, indent=2),
+            )
+            archive.writestr(
+                BACKUP_INGESTED_FILES_NAME,
+                json.dumps(list_ingested_files(), ensure_ascii=False, indent=2, default=str),
+            )
+            if os.path.isdir(source_qdrant_dir):
+                state = get_qdrant_singleton_state()
+                with state["lock"]:
+                    for root, dirs, files in os.walk(source_qdrant_dir):
+                        dirs[:] = [name for name in dirs if name != "__MACOSX"]
+                        for file_name in files:
+                            file_path = os.path.join(root, file_name)
+                            archive_name = os.path.join(QDRANT_DIR, os.path.relpath(file_path, source_qdrant_dir))
+                            write_backup_file(archive, file_path, archive_name)
+        os.replace(temp_backup_path, backup_path)
+    except Exception:
+        if os.path.exists(temp_backup_path):
+            try:
+                os.remove(temp_backup_path)
+            except Exception:
+                pass
+        raise
+    return backup_path, os.path.getsize(backup_path)
 
 
-def safe_extract_backup(uploaded_backup) -> Tuple[str, bool]:
+def create_vector_library_backup() -> bytes:
+    """Create a backup and return bytes for backward compatibility.
+    创建备份并以 bytes 返回，保留旧调用兼容性。
+    """
+    backup_path, _backup_size = create_vector_library_backup_file()
+    with open(backup_path, "rb") as backup_file:
+        return backup_file.read()
+
+
+def safe_extract_backup(uploaded_backup) -> Tuple[str, bool, bool]:
     temp_dir = tempfile.mkdtemp(prefix="ocr_rag_restore_")
     has_qdrant = False
+    has_ingested_records = False
     try:
-        uploaded_backup.seek(0)
+        if not isinstance(uploaded_backup, (str, os.PathLike)):
+            uploaded_backup.seek(0)
     except Exception:
         pass
     with zipfile.ZipFile(uploaded_backup) as archive:
@@ -2813,6 +3216,10 @@ def safe_extract_backup(uploaded_backup) -> Tuple[str, bool]:
                 continue
             if normalized.startswith(f"{QDRANT_DIR}/"):
                 has_qdrant = True
+            elif normalized == BACKUP_INGESTED_FILES_NAME:
+                has_ingested_records = True
+            elif normalized == BACKUP_MANIFEST_NAME:
+                pass
             else:
                 continue
             target_path = os.path.abspath(os.path.join(temp_dir, normalized))
@@ -2835,11 +3242,14 @@ def safe_extract_backup(uploaded_backup) -> Tuple[str, bool]:
                 "備份包中沒有發現 qdrant_db 向量庫內容。",
             )
         )
-    return temp_dir, has_qdrant
+    return temp_dir, has_qdrant, has_ingested_records
 
 
 def restore_vector_library_backup(uploaded_backup) -> str:
-    restore_dir, has_qdrant = safe_extract_backup(uploaded_backup)
+    target_qdrant_dir = ensure_local_qdrant_mode_for_backup(
+        localized_text("restore", "导入", "導入")
+    )
+    restore_dir, has_qdrant, has_ingested_records = safe_extract_backup(uploaded_backup)
     try:
         try:
             close_qdrant_singleton()
@@ -2847,15 +3257,43 @@ def restore_vector_library_backup(uploaded_backup) -> str:
         except Exception:
             pass
         restored_qdrant_dir = os.path.join(restore_dir, QDRANT_DIR)
-        target_qdrant_dir = get_qdrant_config()["local_path"]
         if has_qdrant and os.path.isdir(restored_qdrant_dir):
             if os.path.isdir(target_qdrant_dir):
                 shutil.rmtree(target_qdrant_dir)
+            os.makedirs(os.path.dirname(os.path.abspath(target_qdrant_dir)), exist_ok=True)
             shutil.copytree(restored_qdrant_dir, target_qdrant_dir)
+
+        try:
+            load_qdrant_client.clear()
+        except Exception:
+            pass
+        load_qdrant_client()
+
+        ingested_records_path = os.path.join(restore_dir, BACKUP_INGESTED_FILES_NAME)
+        if has_ingested_records and os.path.isfile(ingested_records_path):
+            with open(ingested_records_path, "r", encoding="utf-8") as records_file:
+                records = json.load(records_file)
+            restored_records = replace_ingested_file_records(records if isinstance(records, list) else [])
+        else:
+            restored_records = rebuild_ingested_file_records_from_qdrant()
+
         return localized_text(
-            "Backup imported. Restart Streamlit to ensure Qdrant reloads cleanly.",
-            "备份已导入。建议重启 Streamlit，确保 Qdrant 重新加载。",
-            "備份已導入。建議重啟 Streamlit，確保 Qdrant 重新載入。",
+            f"Backup imported. Restored {restored_records} file records. The library view has been reloaded.",
+            f"备份已导入，已恢复 {restored_records} 条文件记录，文档库视图已重新加载。",
+            f"備份已導入，已恢復 {restored_records} 條文件記錄，文件庫視圖已重新載入。",
         )
     finally:
         shutil.rmtree(restore_dir, ignore_errors=True)
+
+
+def restore_vector_library_backup_from_path(backup_path: str) -> str:
+    backup_path = normalize_local_path(backup_path)
+    if not os.path.isfile(backup_path):
+        raise FileNotFoundError(
+            localized_text(
+                f"Backup file was not found: {backup_path}",
+                f"未找到备份文件：{backup_path}",
+                f"未找到備份文件：{backup_path}",
+            )
+        )
+    return restore_vector_library_backup(backup_path)

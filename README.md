@@ -178,7 +178,7 @@ http://127.0.0.1:8501
 
 ### How To Use
 
-1. Open `Settings`, choose the UI language if needed, and configure the local LLM endpoint.
+1. Open `Settings`, choose the UI language if needed, then configure model paths, download sources, Qdrant, and the local LLM endpoint.
 2. Open `Ingest`, choose the document type:
    - Regulations / Policies
    - Enterprise Materials
@@ -232,6 +232,16 @@ The app uses:
 - Your configured local LLM endpoint for answer generation. The app does not download Qwen or other chat models by itself.
 
 Model cache paths can be configured in `Settings`.
+
+### Download Sources And Local Services
+
+`Settings > Models And Paths` lets you configure both cache paths and download or install sources:
+
+- BGE-M3 and the reranker use `sentence-transformers` / Hugging Face compatible downloads. You can choose the official endpoint, `https://hf-mirror.com`, or a custom Hugging Face-compatible endpoint.
+- PaddleOCR uses PaddleX official model downloads. You can choose Hugging Face / PaddlePaddle, ModelScope, Baidu AIStudio, or Paddle BOS. When PaddleOCR uses Hugging Face, the same configured Hugging Face endpoint is applied.
+- LibreOffice is not a model. It is resolved through the configured `soffice` path, the system package manager, or a custom single-command install command for your own mirror/internal package source.
+- Qdrant can run as a local file store or as an HTTP/Docker service.
+- The LLM is always provided by your configured OpenAI-compatible or Anthropic-compatible HTTP endpoint. The app does not download chat models.
 
 ### Reset And Backup
 
@@ -419,7 +429,7 @@ http://127.0.0.1:8501
 
 ### 使用流程
 
-1. 打开“配置中心 / Settings”，按需选择界面语言，并确认本地大模型接口可用。
+1. 打开“配置中心 / Settings”，按需选择界面语言，并配置模型路径、下载来源、Qdrant 和本地大模型接口。
 2. 打开“上传入库 / Ingest”，选择资料类型：
    - 监管要求 / 规章制度
    - 企业资料
@@ -473,6 +483,16 @@ ocr_rag_ui/
 - 本地大模型：由你配置的 OpenAI 兼容或 Anthropic 兼容接口提供，本项目不会自动下载 Qwen 或其他聊天模型。
 
 模型保存路径可以在“配置中心 / Settings”页面调整。
+
+### 下载来源与本地服务
+
+“配置中心 / Settings > 模型与路径”可以同时配置缓存路径、下载来源和安装来源：
+
+- BGE-M3 和 Reranker 通过 `sentence-transformers` / Hugging Face 兼容机制下载，可选择官方端点、`https://hf-mirror.com` 或自定义 Hugging Face 兼容端点。
+- PaddleOCR 通过 PaddleX 官方模型机制下载，可选择 Hugging Face / PaddlePaddle、ModelScope 魔搭、百度 AIStudio 或 Paddle BOS。PaddleOCR 下载源为 Hugging Face 时，会复用上面配置的 Hugging Face 端点。
+- LibreOffice 不是模型。它通过已配置的 `soffice` 路径、系统包管理器或自定义单条安装命令获取，适合配置镜像源或内网安装命令。
+- Qdrant 可使用本地文件库，也可连接 HTTP/Docker Qdrant 服务。
+- 本地大模型由你配置的 OpenAI 兼容或 Anthropic 兼容 HTTP 接口提供，本项目不会自动下载聊天模型。
 
 ### 初始化和备份
 
@@ -660,7 +680,7 @@ http://127.0.0.1:8501
 
 ### 使用流程
 
-1. 打開 `Settings`，按需選擇介面語言，並確認本地大模型接口可用。
+1. 打開 `Settings`，按需選擇介面語言，並配置模型路徑、下載來源、Qdrant 和本地大模型接口。
 2. 打開 `Ingest`，選擇資料類型：
    - 監管要求 / 規章制度
    - 企業資料
@@ -714,6 +734,16 @@ ocr_rag_ui/
 - 本地大模型：由你配置的 OpenAI 相容或 Anthropic 相容接口提供，本專案不會自動下載 Qwen 或其他聊天模型。
 
 模型保存路徑可以在 `Settings` 頁面調整。
+
+### 下載來源與本地服務
+
+`Settings > Models And Paths` 可以同時配置快取路徑、下載來源和安裝來源：
+
+- BGE-M3 和 Reranker 透過 `sentence-transformers` / Hugging Face 相容機制下載，可選擇官方端點、`https://hf-mirror.com` 或自訂 Hugging Face 相容端點。
+- PaddleOCR 透過 PaddleX 官方模型機制下載，可選擇 Hugging Face / PaddlePaddle、ModelScope 魔搭、百度 AIStudio 或 Paddle BOS。PaddleOCR 下載源為 Hugging Face 時，會複用上面配置的 Hugging Face 端點。
+- LibreOffice 不是模型。它透過已配置的 `soffice` 路徑、系統套件管理器或自訂單條安裝命令取得，適合配置鏡像源或內網安裝命令。
+- Qdrant 可使用本地文件庫，也可連接 HTTP/Docker Qdrant 服務。
+- 本地大模型由你配置的 OpenAI 相容或 Anthropic 相容 HTTP 接口提供，本專案不會自動下載聊天模型。
 
 ### 初始化和備份
 

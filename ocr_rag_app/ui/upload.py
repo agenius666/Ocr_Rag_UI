@@ -464,6 +464,10 @@ def render_upload_tab() -> None:
                         + str(install_plan.get("platform", localized_text("Unknown system", "未知系统", "未知系統")))
                     )
                     st.write(
+                        localized_text("Install source: ", "安装来源：", "安裝來源：")
+                        + str(install_plan.get("source", localized_text("System Package Manager", "系统包管理器", "系統套件管理器")))
+                    )
+                    st.write(
                         localized_text("Install command: ", "安装命令：", "安裝命令：")
                         + str(install_plan.get("manual", localized_text("No available command", "无可用命令", "無可用命令")))
                     )

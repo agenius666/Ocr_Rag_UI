@@ -7,7 +7,7 @@ from .components import *
 
 
 def render_settings_tab() -> None:
-    st.subheader("配置中心")
+    st.subheader(localized_text("Settings", "配置中心", "配置中心"))
     reset_notice = st.session_state.pop("app_reset_notice", "")
     if reset_notice:
         st.success(reset_notice)
@@ -24,16 +24,22 @@ def render_settings_tab() -> None:
 
     with config_language_tab:
         with st.container(border=True):
-            st.markdown("#### 界面语言")
+            st.markdown(localized_text("#### Interface Language", "#### 界面语言", "#### 介面語言"))
             current_language_code = get_ui_language()
             current_language_label = LANGUAGE_LABEL_BY_CODE.get(current_language_code, "English")
             selected_language_label = st.selectbox(
-                "选择界面语言",
+                localized_text("Select Interface Language", "选择界面语言", "選擇介面語言"),
                 list(LANGUAGE_OPTIONS.keys()),
                 index=list(LANGUAGE_OPTIONS.keys()).index(current_language_label),
                 key="ui_language_selector",
             )
-            st.caption("语言偏好会保存到 app_state.sqlite3，下次打开会自动生效。")
+            st.caption(
+                localized_text(
+                    "The language preference is saved in app_state.sqlite3 and will be applied next time.",
+                    "语言偏好会保存到 app_state.sqlite3，下次打开会自动生效。",
+                    "語言偏好會保存到 app_state.sqlite3，下次打開會自動生效。",
+                )
+            )
             selected_language_code = LANGUAGE_OPTIONS[selected_language_label]
             if selected_language_code != current_language_code:
                 set_config_value("ui_language", selected_language_code)
@@ -44,11 +50,11 @@ def render_settings_tab() -> None:
         ocr_col, path_col = st.columns([1, 2])
         with ocr_col:
             with st.container(border=True):
-                st.markdown("#### OCR 模型")
+                st.markdown(localized_text("#### OCR Model", "#### OCR 模型", "#### OCR 模型"))
                 paddleocr_model_labels = list(PADDLEOCR_MODEL_OPTIONS.keys())
                 current_paddleocr_label = get_paddleocr_model_label()
                 selected_paddleocr_label = st.selectbox(
-                    "PaddleOCR 模型",
+                    localized_text("PaddleOCR Model", "PaddleOCR 模型", "PaddleOCR 模型"),
                     paddleocr_model_labels,
                     index=paddleocr_model_labels.index(current_paddleocr_label),
                     key="config_paddleocr_model_label",
@@ -74,7 +80,7 @@ def render_settings_tab() -> None:
 
         with path_col:
             with st.container(border=True):
-                st.markdown("#### 模型保存路径")
+                st.markdown(localized_text("#### Model Storage Paths", "#### 模型保存路径", "#### 模型保存路徑"))
                 st.caption(
                     localized_text(
                         "By default, PaddleOCR, BGE-M3, and the reranker are cached under the project's model_cache directory. If a specific path is configured, that path is used first.",
@@ -84,7 +90,7 @@ def render_settings_tab() -> None:
                 )
                 with st.form("model_cache_config_form"):
                     model_cache_root = st.text_input(
-                        "默认模型根目录",
+                        localized_text("Default Model Root", "默认模型根目录", "預設模型根目錄"),
                         value=get_model_cache_root(),
                         key="model_cache_root_input",
                         placeholder=DEFAULT_MODEL_CACHE_ROOT,
@@ -98,7 +104,7 @@ def render_settings_tab() -> None:
                     path_input_col1, path_input_col2 = st.columns(2)
                     with path_input_col1:
                         paddleocr_cache_dir = st.text_input(
-                            "PaddleOCR 模型目录",
+                            localized_text("PaddleOCR Model Directory", "PaddleOCR 模型目录", "PaddleOCR 模型目錄"),
                             value=get_config_value("paddleocr_cache_dir", ""),
                             key="paddleocr_cache_dir_input",
                             placeholder=os.path.join(default_root_for_form, "paddlex"),
@@ -109,7 +115,7 @@ def render_settings_tab() -> None:
                             ),
                         )
                         bge_cache_dir = st.text_input(
-                            "BAAI/bge-m3 模型目录",
+                            localized_text("BAAI/bge-m3 Model Directory", "BAAI/bge-m3 模型目录", "BAAI/bge-m3 模型目錄"),
                             value=get_config_value("bge_cache_dir", ""),
                             key="bge_cache_dir_input",
                             placeholder=os.path.join(default_root_for_form, "bge-m3"),
@@ -121,7 +127,7 @@ def render_settings_tab() -> None:
                         )
                     with path_input_col2:
                         reranker_cache_dir = st.text_input(
-                            "BAAI/bge-reranker-v2-m3 模型目录",
+                            localized_text("BAAI/bge-reranker-v2-m3 Model Directory", "BAAI/bge-reranker-v2-m3 模型目录", "BAAI/bge-reranker-v2-m3 模型目錄"),
                             value=get_config_value("reranker_cache_dir", ""),
                             key="reranker_cache_dir_input",
                             placeholder=os.path.join(default_root_for_form, "bge-reranker-v2-m3"),
@@ -132,7 +138,7 @@ def render_settings_tab() -> None:
                             ),
                         )
                         soffice_binary_path = st.text_input(
-                            "LibreOffice / soffice 路径",
+                            localized_text("LibreOffice / soffice Path", "LibreOffice / soffice 路径", "LibreOffice / soffice 路徑"),
                             value=get_configured_soffice_path(),
                             key="soffice_binary_path_input",
                             placeholder=localized_text(
@@ -149,9 +155,9 @@ def render_settings_tab() -> None:
 
                     path_col_save, path_col_reset = st.columns([1, 1])
                     with path_col_save:
-                        save_model_paths = st.form_submit_button("保存模型路径", type="primary")
+                        save_model_paths = st.form_submit_button(localized_text("Save Model Paths", "保存模型路径", "保存模型路徑"), type="primary")
                     with path_col_reset:
-                        reset_model_paths = st.form_submit_button("恢复默认路径")
+                        reset_model_paths = st.form_submit_button(localized_text("Restore Defaults", "恢复默认路径", "恢復預設路徑"))
 
                 if save_model_paths:
                     try:
@@ -189,16 +195,162 @@ def render_settings_tab() -> None:
                     except Exception as e:
                         st.error(localized_text(f"Failed to restore default model paths: {e}", f"恢复默认模型路径失败：{e}", f"恢復預設模型路徑失敗：{e}"))
 
-                with st.expander("当前路径", expanded=False):
+                current_download_config = get_model_download_config()
+                with st.expander(localized_text("Current Paths", "当前路径", "當前路徑"), expanded=False):
                     st.json(
                         {
                             "model_cache_root": get_model_cache_root(),
                             "paddleocr_cache_dir": get_paddleocr_cache_dir(),
                             "bge_cache_dir": get_bge_cache_dir(),
                             "reranker_cache_dir": get_reranker_cache_dir(),
+                            "huggingface_download_source": current_download_config["source_label"],
+                            "huggingface_endpoint": current_download_config["hf_endpoint"],
+                            "paddleocr_model_source": current_download_config["paddleocr_source_label"],
+                            "paddleocr_huggingface_endpoint": current_download_config["paddleocr_hf_endpoint"],
+                            "libreoffice_install_source": current_download_config["libreoffice_install_source_label"],
+                            "custom_libreoffice_install_command": current_download_config["custom_libreoffice_install_command"],
                             "soffice_binary_path": get_configured_soffice_path() or localized_text("Auto-detect system path", "自动搜索系统路径", "自動搜尋系統路徑"),
                             "detected_soffice": find_soffice_binary() or localized_text("Not detected", "未检测到", "未檢測到"),
                         }
+                    )
+
+        with st.container(border=True):
+            st.markdown(localized_text("#### Download And Install Sources", "#### 下载与安装源", "#### 下載與安裝源"))
+            st.caption(
+                localized_text(
+                    "Configure where BGE-M3, the reranker, PaddleOCR models, and LibreOffice installation commands are downloaded or resolved from.",
+                    "配置 BGE-M3、Reranker、PaddleOCR 模型和 LibreOffice 安装命令的下载或解析来源。",
+                    "配置 BGE-M3、Reranker、PaddleOCR 模型和 LibreOffice 安裝命令的下載或解析來源。",
+                )
+            )
+            download_config = get_model_download_config()
+            download_source_keys = list(MODEL_DOWNLOAD_SOURCE_OPTIONS.keys())
+            download_source_labels = [get_model_download_source_label(source) for source in download_source_keys]
+            current_download_source = download_config["source"]
+            current_download_label = get_model_download_source_label(current_download_source)
+
+            paddle_source_keys = list(PADDLEOCR_MODEL_SOURCE_OPTIONS.keys())
+            paddle_source_labels = [get_paddleocr_model_source_label(source) for source in paddle_source_keys]
+            current_paddle_source = download_config["paddleocr_source"]
+            current_paddle_label = get_paddleocr_model_source_label(current_paddle_source)
+
+            libreoffice_source_keys = list(LIBREOFFICE_INSTALL_SOURCE_OPTIONS.keys())
+            libreoffice_source_labels = [get_libreoffice_install_source_label(source) for source in libreoffice_source_keys]
+            current_libreoffice_source = download_config["libreoffice_install_source"]
+            current_libreoffice_label = get_libreoffice_install_source_label(current_libreoffice_source)
+
+            with st.form("model_download_source_form"):
+                source_col1, source_col2 = st.columns(2)
+                with source_col1:
+                    selected_download_label = st.selectbox(
+                        localized_text("BGE-M3 / Reranker Source", "BGE-M3 / Reranker 下载源", "BGE-M3 / Reranker 下載源"),
+                        download_source_labels,
+                        index=download_source_labels.index(current_download_label),
+                        key="model_download_source_select",
+                        help=localized_text(
+                            "Controls Hugging Face compatible downloads used by sentence-transformers for BGE-M3 and the reranker.",
+                            "控制 sentence-transformers 下载 BGE-M3 和 Reranker 时使用的 Hugging Face 兼容端点。",
+                            "控制 sentence-transformers 下載 BGE-M3 和 Reranker 時使用的 Hugging Face 相容端點。",
+                        ),
+                    )
+                    selected_download_source = download_source_keys[download_source_labels.index(selected_download_label)]
+                    custom_hf_endpoint = st.text_input(
+                        localized_text("Custom Hugging Face Endpoint", "自定义 Hugging Face Endpoint", "自訂 Hugging Face Endpoint"),
+                        value=get_custom_hf_endpoint(),
+                        key="custom_hf_endpoint_input",
+                        placeholder="https://hf-mirror.com",
+                        help=localized_text(
+                            "Only used when the BGE-M3 / reranker source is Custom. PaddleOCR also uses this endpoint when its source is Hugging Face.",
+                            "仅当 BGE-M3 / Reranker 下载源选择自定义时使用；PaddleOCR 下载源为 Hugging Face 时也会使用该端点。",
+                            "僅當 BGE-M3 / Reranker 下載源選擇自訂時使用；PaddleOCR 下載源為 Hugging Face 時也會使用該端點。",
+                        ),
+                    )
+                with source_col2:
+                    selected_paddle_label = st.selectbox(
+                        localized_text("PaddleOCR Model Source", "PaddleOCR 模型下载源", "PaddleOCR 模型下載源"),
+                        paddle_source_labels,
+                        index=paddle_source_labels.index(current_paddle_label),
+                        key="paddleocr_model_source_select",
+                        help=localized_text(
+                            "Controls PaddleX official model downloads for PaddleOCR detection, recognition, and orientation models.",
+                            "控制 PaddleOCR 检测、识别、方向分类等 PaddleX 官方模型的下载来源。",
+                            "控制 PaddleOCR 偵測、識別、方向分類等 PaddleX 官方模型的下載來源。",
+                        ),
+                    )
+                    selected_paddle_source = paddle_source_keys[paddle_source_labels.index(selected_paddle_label)]
+                    effective_hf_endpoint = (
+                        custom_hf_endpoint.strip().rstrip("/")
+                        if selected_download_source == "custom" and custom_hf_endpoint.strip()
+                        else (HF_MIRROR_ENDPOINT if selected_download_source == "hf_mirror" else "https://huggingface.co")
+                    )
+                    st.caption(
+                        localized_text(
+                            f"Effective Hugging Face endpoint: {effective_hf_endpoint}",
+                            f"生效的 Hugging Face 端点：{effective_hf_endpoint}",
+                            f"生效的 Hugging Face 端點：{effective_hf_endpoint}",
+                        )
+                    )
+
+                libre_col1, libre_col2 = st.columns([1, 2])
+                with libre_col1:
+                    selected_libreoffice_label = st.selectbox(
+                        localized_text("LibreOffice Install Source", "LibreOffice 安装来源", "LibreOffice 安裝來源"),
+                        libreoffice_source_labels,
+                        index=libreoffice_source_labels.index(current_libreoffice_label),
+                        key="libreoffice_install_source_select",
+                        help=localized_text(
+                            "LibreOffice is installed through the system package manager by default. Choose Custom to use your own mirror or internal package command.",
+                            "LibreOffice 默认通过系统包管理器安装；选择自定义后可使用镜像源或内网安装命令。",
+                            "LibreOffice 預設透過系統套件管理器安裝；選擇自訂後可使用鏡像源或內網安裝命令。",
+                        ),
+                    )
+                    selected_libreoffice_source = libreoffice_source_keys[libreoffice_source_labels.index(selected_libreoffice_label)]
+                with libre_col2:
+                    custom_libreoffice_command = st.text_input(
+                        localized_text("Custom LibreOffice Install Command", "自定义 LibreOffice 安装命令", "自訂 LibreOffice 安裝命令"),
+                        value=get_custom_libreoffice_install_command(),
+                        key="custom_libreoffice_install_command_input",
+                        placeholder=localized_text(
+                            "Example: brew install --cask libreoffice",
+                            "示例：brew install --cask libreoffice",
+                            "範例：brew install --cask libreoffice",
+                        ),
+                        help=localized_text(
+                            "Only used when the LibreOffice install source is Custom. Use one executable command without shell operators such as &&. The app runs it only when you explicitly click automatic installation.",
+                            "仅当 LibreOffice 安装来源选择自定义时使用。请填写单条可执行命令，不支持 && 等 shell 操作符；只有在你主动点击自动安装时才会执行。",
+                            "僅當 LibreOffice 安裝來源選擇自訂時使用。請填寫單條可執行命令，不支援 && 等 shell 操作符；只有在你主動點擊自動安裝時才會執行。",
+                        ),
+                    )
+
+                save_download_source = st.form_submit_button(
+                    localized_text("Save Sources", "保存来源配置", "保存來源配置"),
+                    type="primary",
+                )
+
+            if save_download_source:
+                try:
+                    save_model_download_config(
+                        selected_download_source,
+                        custom_hf_endpoint,
+                        selected_paddle_source,
+                        selected_libreoffice_source,
+                        custom_libreoffice_command,
+                    )
+                    st.success(
+                        localized_text(
+                            "Download and install sources saved. OCR, BGE-M3, and reranker caches were cleared; the next download/load will use the selected sources.",
+                            "下载与安装源已保存，已清理 OCR、BGE-M3 和 Reranker 加载缓存；下次下载/加载会使用所选来源。",
+                            "下載與安裝源已保存，已清理 OCR、BGE-M3 和 Reranker 載入快取；下次下載/載入會使用所選來源。",
+                        )
+                    )
+                    st.rerun()
+                except Exception as e:
+                    st.error(
+                        localized_text(
+                            f"Failed to save download and install sources: {e}",
+                            f"保存下载与安装源失败：{e}",
+                            f"保存下載與安裝源失敗：{e}",
+                        )
                     )
 
     with config_qdrant_tab:

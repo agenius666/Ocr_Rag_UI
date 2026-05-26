@@ -55,7 +55,11 @@ def render_compliance_tab() -> None:
                 value=get_int_config("compliance_context_turns", DEFAULT_CONTEXT_TURNS),
                 step=1,
                 key="compliance_context_turns_input",
-                help="只把最近 N 轮合规分析对话放进模型上下文；历史仍会保存在数据库。",
+                help=localized_text(
+                    "Only the latest N compliance-analysis turns are sent to the model context. Full history remains saved in the database.",
+                    "只把最近 N 轮合规分析对话放进模型上下文；历史仍会保存在数据库。",
+                    "只把最近 N 輪合規分析對話放進模型上下文；歷史仍會保存在資料庫。",
+                ),
             )
             set_config_value("compliance_context_turns", compliance_context_turns)
 
@@ -65,14 +69,22 @@ def render_compliance_tab() -> None:
                 "追问补全成完整检索问题",
                 value=get_bool_config("compliance_query_rewrite", True),
                 key="compliance_query_rewrite_input",
-                help="合规多轮分析中把追问补全成完整检索问题。",
+                help=localized_text(
+                    "In multi-turn compliance analysis, complete follow-up questions into standalone retrieval queries.",
+                    "合规多轮分析中把追问补全成完整检索问题。",
+                    "合規多輪分析中把追問補全成完整檢索問題。",
+                ),
             )
             set_bool_config("compliance_query_rewrite", compliance_query_rewrite)
             compliance_query_decompose = st.checkbox(
                 "复杂问题拆解后分别检索",
                 value=get_bool_config("compliance_query_decompose", DEFAULT_QUERY_DECOMPOSE),
                 key="compliance_query_decompose_input",
-                help="复杂合规问题会拆成多个子问题分别检索，再合并监管和企业证据。",
+                help=localized_text(
+                    "Complex compliance questions are split into sub-queries, retrieved separately, then merged across regulatory and enterprise evidence.",
+                    "复杂合规问题会拆成多个子问题分别检索，再合并监管和企业证据。",
+                    "複雜合規問題會拆成多個子問題分別檢索，再合併監管和企業證據。",
+                ),
             )
             set_bool_config("compliance_query_decompose", compliance_query_decompose)
         with threshold_col:
@@ -80,7 +92,11 @@ def render_compliance_tab() -> None:
                 "启用向量距离阈值过滤",
                 value=get_bool_config("compliance_use_distance_threshold", True),
                 key="compliance_use_distance_threshold_input",
-                help="分别过滤监管资料和企业资料里的弱相关片段。",
+                help=localized_text(
+                    "Filter weakly related chunks separately in regulatory and enterprise materials.",
+                    "分别过滤监管资料和企业资料里的弱相关片段。",
+                    "分別過濾監管資料和企業資料裡的弱相關片段。",
+                ),
             )
             set_bool_config("compliance_use_distance_threshold", compliance_use_distance_threshold)
         with distance_col:
@@ -104,7 +120,11 @@ def render_compliance_tab() -> None:
                 "启用混合检索",
                 value=get_bool_config("compliance_use_hybrid", DEFAULT_USE_HYBRID_SEARCH),
                 key="compliance_use_hybrid_input",
-                help="同时使用向量语义检索和关键词检索，适合条款号、制度名称、部门名称。",
+                help=localized_text(
+                    "Use both semantic vector retrieval and keyword retrieval. Useful for clause numbers, policy names, and department names.",
+                    "同时使用向量语义检索和关键词检索，适合条款号、制度名称、部门名称。",
+                    "同時使用向量語義檢索和關鍵詞檢索，適合條款號、制度名稱、部門名稱。",
+                ),
             )
             set_bool_config("compliance_use_hybrid", compliance_use_hybrid)
         with strategy_col2:
@@ -112,7 +132,11 @@ def render_compliance_tab() -> None:
                 "启用重排模型",
                 value=get_bool_config("compliance_use_reranker", DEFAULT_USE_RERANKER),
                 key="compliance_use_reranker_input",
-                help="分别对监管资料和企业资料做候选重排；更准但会增加内存和耗时。",
+                help=localized_text(
+                    "Rerank regulatory and enterprise candidates separately. It is more precise but uses more memory and time.",
+                    "分别对监管资料和企业资料做候选重排；更准但会增加内存和耗时。",
+                    "分別對監管資料和企業資料做候選重排；更準但會增加記憶體和耗時。",
+                ),
             )
             set_bool_config("compliance_use_reranker", compliance_use_reranker)
         with strategy_col3:
@@ -127,7 +151,11 @@ def render_compliance_tab() -> None:
                 ),
                 step=1,
                 key="compliance_fetch_k_input",
-                help="用于混合检索和重排的候选数量。",
+                help=localized_text(
+                    "Candidate count used for hybrid retrieval and reranking.",
+                    "用于混合检索和重排的候选数量。",
+                    "用於混合檢索和重排的候選數量。",
+                ),
             )
             set_config_value("compliance_fetch_k", compliance_fetch_k)
 
@@ -149,7 +177,11 @@ def render_compliance_tab() -> None:
                 ),
                 step=1,
                 key="compliance_min_regulation_evidence_input",
-                help="合规分析会尽量保证监管证据不少于该数量；不足时会放宽距离阈值补齐。",
+                help=localized_text(
+                    "Compliance analysis tries to include at least this many regulatory evidence chunks. If insufficient, it relaxes the distance threshold to fill the quota.",
+                    "合规分析会尽量保证监管证据不少于该数量；不足时会放宽距离阈值补齐。",
+                    "合規分析會盡量保證監管證據不少於該數量；不足時會放寬距離閾值補齊。",
+                ),
             )
             set_config_value("compliance_min_regulation_evidence", compliance_min_regulation_evidence)
         with coverage_col2:
@@ -169,7 +201,11 @@ def render_compliance_tab() -> None:
                 ),
                 step=1,
                 key="compliance_min_enterprise_evidence_input",
-                help="合规分析会尽量保证企业资料证据不少于该数量；不足时会放宽距离阈值补齐。",
+                help=localized_text(
+                    "Compliance analysis tries to include at least this many enterprise evidence chunks. If insufficient, it relaxes the distance threshold to fill the quota.",
+                    "合规分析会尽量保证企业资料证据不少于该数量；不足时会放宽距离阈值补齐。",
+                    "合規分析會盡量保證企業資料證據不少於該數量；不足時會放寬距離閾值補齊。",
+                ),
             )
             set_config_value("compliance_min_enterprise_evidence", compliance_min_enterprise_evidence)
         with coverage_col3:
@@ -177,7 +213,11 @@ def render_compliance_tab() -> None:
                 "按监管条款逐条对照",
                 value=get_bool_config("compliance_clause_by_clause", False),
                 key="compliance_clause_by_clause_input",
-                help="适合监管条款较清晰的场景，模型会尽量一条监管要求对应一行分析。",
+                help=localized_text(
+                    "Best for clearly separated regulatory clauses. The model will try to analyze one regulatory requirement per row.",
+                    "适合监管条款较清晰的场景，模型会尽量一条监管要求对应一行分析。",
+                    "適合監管條款較清晰的場景，模型會盡量一條監管要求對應一行分析。",
+                ),
             )
             set_bool_config("compliance_clause_by_clause", compliance_clause_by_clause)
         with coverage_col4:
@@ -185,7 +225,11 @@ def render_compliance_tab() -> None:
                 "输出资料不足清单",
                 value=get_bool_config("compliance_include_missing_list", True),
                 key="compliance_include_missing_list_input",
-                help="要求模型列出还需要补充哪些企业资料，并可一起导出 Excel。",
+                help=localized_text(
+                    "Ask the model to list missing enterprise materials; the list can be exported with the Excel report.",
+                    "要求模型列出还需要补充哪些企业资料，并可一起导出 Excel。",
+                    "要求模型列出還需要補充哪些企業資料，並可一起導出 Excel。",
+                ),
             )
             set_bool_config("compliance_include_missing_list", compliance_include_missing_list)
 

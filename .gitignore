@@ -26,6 +26,7 @@ env/
 # Application runtime data
 uploads/
 qdrant_db/
+backups/
 app_state.sqlite3
 app_state.sqlite3-*
 
