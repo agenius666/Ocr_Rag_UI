@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$InstallDir = "",
     [string]$Language = ""
 )
@@ -375,9 +375,33 @@ function Write-RootLauncher {
     param([string]$TargetDir)
     $launcher = Join-Path $TargetDir "start.ps1"
     $content = @'
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$StartScript = Join-Path $Root "scripts\start.ps1"
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $StartScript
+$ErrorActionPreference = "Stop"
+
+try {
+    $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+    $StartScript = Join-Path $Root "scripts\start.ps1"
+
+    if (-not (Test-Path -LiteralPath $StartScript)) {
+        throw "Launcher script was not found: $StartScript"
+    }
+
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $StartScript
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0 -and -not [Console]::IsInputRedirected) {
+        Write-Host ""
+        Write-Host "Launcher stopped with exit code $exitCode." -ForegroundColor Red
+        Read-Host "Press Enter to close this window" | Out-Null
+    }
+    exit $exitCode
+} catch {
+    Write-Host ""
+    Write-Host "Launcher failed to start:" -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    if (-not [Console]::IsInputRedirected) {
+        Read-Host "Press Enter to close this window" | Out-Null
+    }
+    exit 1
+}
 '@
     Write-Utf8NoBom -Path $launcher -Content ($content.TrimEnd() + "`n")
     Say "Launch later with: powershell -ExecutionPolicy Bypass -File start.ps1" "以后可启动：右键 start.ps1 选择“使用 PowerShell 运行”，或执行 powershell -ExecutionPolicy Bypass -File start.ps1" "以後可啟動：右鍵 start.ps1 選擇「使用 PowerShell 執行」，或執行 powershell -ExecutionPolicy Bypass -File start.ps1"

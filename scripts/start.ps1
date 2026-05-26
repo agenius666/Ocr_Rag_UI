@@ -1,10 +1,10 @@
-param(
+﻿param(
     [string]$Language = ""
 )
 
 $ErrorActionPreference = "Continue"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$RootDir = Split-Path -Parent $ScriptDir1
+$RootDir = Split-Path -Parent $ScriptDir
 $LanguageFile = Join-Path $RootDir ".launcher_lang"
 $ThemeFile = Join-Path $RootDir ".launcher_theme"
 $StreamlitConfigFile = Join-Path $RootDir ".streamlit\config.toml"
@@ -242,6 +242,59 @@ function Compare-VersionGreater {
     return $false
 }
 
+function Refresh-SessionPath {
+    $seen = @{}
+    $segments = New-Object System.Collections.Generic.List[string]
+    $pathSources = @(
+        [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::Machine),
+        [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::User),
+        $env:Path,
+        "C:\Program Files\Git\cmd",
+        "C:\Program Files\Git\bin",
+        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python312"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\Scripts")
+    )
+
+    foreach ($source in $pathSources) {
+        if ([string]::IsNullOrWhiteSpace($source)) {
+            continue
+        }
+        foreach ($segment in ($source -split ";")) {
+            $value = $segment.Trim()
+            if ([string]::IsNullOrWhiteSpace($value)) {
+                continue
+            }
+            $key = $value.ToLowerInvariant()
+            if (-not $seen.ContainsKey($key)) {
+                $seen[$key] = $true
+                $segments.Add($value)
+            }
+        }
+    }
+
+    $env:Path = $segments -join ";"
+}
+
+function Ensure-Git {
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        return $true
+    }
+
+    Say "Git was not found. Trying to install Git with winget..." "未找到 Git，正在尝试使用 winget 安装 Git..." "未找到 Git，正在嘗試使用 winget 安裝 Git..."
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Say "Git is required for online updates. Please install Git for Windows or rerun bootstrap." "在线更新需要 Git。请安装 Git for Windows，或重新运行 bootstrap 安装命令。" "線上更新需要 Git。請安裝 Git for Windows，或重新執行 bootstrap 安裝命令。"
+        return $false
+    }
+
+    winget install --id Git.Git -e --accept-source-agreements --accept-package-agreements
+    Refresh-SessionPath
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        Say "Git was installed, but this PowerShell session still cannot find it. Reopen the launcher and try again." "Git 已安装，但当前 PowerShell 会话仍然找不到它。请重新打开启动器后再试。" "Git 已安裝，但目前 PowerShell 工作階段仍然找不到它。請重新開啟啟動器後再試。"
+        return $false
+    }
+    return $true
+}
+
 function Download-LatestJson {
     foreach ($url in @($UpdateGitHubUrl, $UpdateGiteeUrl)) {
         if ([string]::IsNullOrWhiteSpace($url)) {
@@ -422,6 +475,9 @@ function Update-Source {
     Set-Location $RootDir
     if (-not (Test-Path (Join-Path $RootDir ".git"))) {
         Say "This does not look like a Git checkout. Download the latest ZIP or rerun bootstrap." "当前目录不是 Git 仓库。请下载最新版 ZIP，或重新运行 bootstrap 安装命令。" "目前目錄不是 Git 倉庫。請下載最新版 ZIP，或重新執行 bootstrap 安裝命令。"
+        return
+    }
+    if (-not (Ensure-Git)) {
         return
     }
     if (-not (Pull-WithFallback)) {
