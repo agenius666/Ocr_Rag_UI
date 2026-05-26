@@ -516,9 +516,9 @@ class SpreadsheetRowLimitExceeded(RuntimeError):
         self.row_limit = row_limit
         super().__init__(
             localized_text(
-                f"Excel file skipped because it has {row_count} rows, exceeding the configured limit of {row_limit}.",
-                f"Excel 文件行数 {row_count} 超过当前限制 {row_limit}，已跳过入库。",
-                f"Excel 文件行數 {row_count} 超過目前限制 {row_limit}，已跳過入庫。",
+                f"Spreadsheet file skipped because it has {row_count} rows, exceeding the configured limit of {row_limit}.",
+                f"表格文件行数 {row_count} 超过当前限制 {row_limit}，已跳过入库。",
+                f"表格文件列數 {row_count} 超過目前限制 {row_limit}，已跳過入庫。",
             )
         )
 
@@ -553,7 +553,7 @@ def load_workbook_safely(xlsx_path: str, **kwargs: Any):
 
 
 def is_spreadsheet_file_name(file_name: str) -> bool:
-    return get_file_extension_from_name(file_name) in {"xlsx", "xls"}
+    return get_file_extension_from_name(file_name) in {"xlsx", "xls", "csv"}
 
 
 def count_xlsx_rows(xlsx_path: str) -> int:
@@ -562,6 +562,42 @@ def count_xlsx_rows(xlsx_path: str) -> int:
         return sum(int(worksheet.max_row or 0) for worksheet in workbook.worksheets)
     finally:
         workbook.close()
+
+
+def detect_text_file_encoding(file_path: str, sample_size: int = 256 * 1024) -> str:
+    """Detect a practical text encoding for TXT/CSV files.
+    为 TXT/CSV 文件检测可用文本编码。
+    """
+    with open(file_path, "rb") as source:
+        sample = source.read(sample_size)
+    if sample.startswith(b"\xef\xbb\xbf"):
+        return "utf-8-sig"
+    if sample.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return "utf-16"
+
+    candidate_encodings = ["utf-8", "utf-8-sig", "gb18030", "big5", "utf-16", "cp1252"]
+    for encoding in candidate_encodings:
+        try:
+            sample.decode(encoding)
+            return encoding
+        except UnicodeDecodeError:
+            continue
+
+    try:
+        from charset_normalizer import from_bytes
+
+        best_match = from_bytes(sample).best()
+        if best_match and best_match.encoding:
+            return best_match.encoding
+    except Exception:
+        pass
+    return "utf-8"
+
+
+def count_csv_rows(csv_path: str) -> int:
+    encoding = detect_text_file_encoding(csv_path)
+    with open(csv_path, "r", encoding=encoding, errors="replace", newline="") as source:
+        return sum(1 for _line in source)
 
 
 def prepare_spreadsheet_for_ingest(
@@ -575,7 +611,8 @@ def prepare_spreadsheet_for_ingest(
         return file_path, None
 
     prepared_path = file_path
-    if get_file_extension_from_name(relative_name) == "xls":
+    extension = get_file_extension_from_name(relative_name)
+    if extension == "xls":
         if progress_callback:
             progress_callback(localized_text("Converting XLS for row-count check", "正在转换 XLS 以检查行数", "正在轉換 XLS 以檢查行數"))
         prepared_path = convert_legacy_office_file(file_path)
@@ -584,8 +621,8 @@ def prepare_spreadsheet_for_ingest(
         return prepared_path, None
 
     if progress_callback:
-        progress_callback(localized_text("Checking Excel row count", "正在检查 Excel 行数", "正在檢查 Excel 行數"))
-    row_count = count_xlsx_rows(prepared_path)
+        progress_callback(localized_text("Checking spreadsheet row count", "正在检查表格行数", "正在檢查表格列數"))
+    row_count = count_csv_rows(prepared_path) if extension == "csv" else count_xlsx_rows(prepared_path)
     if row_count > excel_row_limit:
         raise SpreadsheetRowLimitExceeded(row_count=row_count, row_limit=excel_row_limit)
     return prepared_path, row_count
@@ -1079,8 +1116,9 @@ def remove_file_quietly(file_path: str) -> None:
 def release_memory_after_file() -> None:
     gc.collect()
     try:
-        import torch
-
+        torch = sys.modules.get("torch")
+        if torch is None:
+            return
         if hasattr(torch, "cuda") and torch.cuda.is_available():
             torch.cuda.empty_cache()
         if hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
@@ -1835,38 +1873,146 @@ def extract_xlsx_sections(
     )
 
 
-def iter_txt_sections(txt_path: str) -> Iterator[Dict[str, Any]]:
-    raw_data = Path(txt_path).read_bytes()
-    text = ""
-    for encoding in ["utf-8-sig", "utf-8", "gb18030", "big5", "utf-16"]:
-        try:
-            text = raw_data.decode(encoding)
-            break
-        except UnicodeDecodeError:
-            continue
+def sniff_csv_dialect(sample: str):
+    try:
+        return csv.Sniffer().sniff(sample, delimiters=",\t;|")
+    except Exception:
+        return csv.excel
+
+
+def build_csv_row_text(
+    row_number: int,
+    cells: List[str],
+    header_cells: Optional[List[str]],
+) -> str:
+    parts = [f"[{source_label('row')} {row_number}]"]
+    if header_cells:
+        max_column_count = max(len(cells), len(header_cells))
+        for column_index in range(max_column_count):
+            value = cells[column_index].strip() if column_index < len(cells) else ""
+            if not value:
+                continue
+            header = header_cells[column_index].strip() if column_index < len(header_cells) else ""
+            label = header or f"{source_label('column')} {column_index + 1}"
+            parts.append(f"{label}: {value}")
     else:
-        raise ValueError(
+        for column_index, value in enumerate(cells, start=1):
+            value = value.strip()
+            if value:
+                parts.append(f"{source_label('column')} {column_index}: {value}")
+    return "\n".join(parts)
+
+
+def iter_csv_sections(
+    csv_path: str,
+    progress_callback: Optional[Callable[[str], None]] = None,
+) -> Iterator[Dict[str, Any]]:
+    encoding = detect_text_file_encoding(csv_path)
+    if progress_callback:
+        progress_callback(
             localized_text(
-                "Unable to decode the TXT file. Supported encodings include UTF-8, GB18030, Big5, and UTF-16.",
-                "无法解码 TXT 文件。支持的编码包括 UTF-8、GB18030、Big5 和 UTF-16。",
-                "無法解碼 TXT 文件。支援的編碼包括 UTF-8、GB18030、Big5 和 UTF-16。",
+                f"Reading CSV file with detected encoding: {encoding}",
+                f"正在读取 CSV 文件，检测到编码：{encoding}",
+                f"正在讀取 CSV 文件，檢測到編碼：{encoding}",
             )
         )
 
-    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
-    if not text:
-        return
-    section = {
-        "text": f"{source_label('direct_text')}:\n{text}",
-        "metadata": {
-            "source_type": "txt",
-            "source_label": source_label("direct_text"),
-            "extract_method": "text_decode",
-        },
-    }
-    yield section
-    del raw_data, text, section
+    with open(csv_path, "r", encoding=encoding, errors="replace", newline="") as source:
+        sample = source.read(8192)
+        source.seek(0)
+        reader = csv.reader(source, dialect=sniff_csv_dialect(sample))
+        header_cells = None
+        for row_number, row in enumerate(reader, start=1):
+            cells = trim_empty_tail([format_cell_value(value).strip() for value in row])
+            if not any(cells):
+                continue
+
+            if header_cells is None and looks_like_xlsx_header(cells):
+                header_cells = cells
+                header_section = make_section(
+                    f"[{source_label('header_row')} {row_number}]\n"
+                    + "\n".join(f"{source_label('column')} {index + 1}: {cell}" for index, cell in enumerate(cells) if cell),
+                    {
+                        "source_type": "csv",
+                        "row_number": row_number,
+                        "row_range": str(row_number),
+                        "section_type": "table_header",
+                        "extract_method": f"csv_decode:{encoding}",
+                    },
+                )
+                if header_section:
+                    yield header_section
+                continue
+
+            section = make_section(
+                build_csv_row_text(row_number, cells, header_cells),
+                {
+                    "source_type": "csv",
+                    "row_number": row_number,
+                    "row_range": str(row_number),
+                    "section_type": "table_row",
+                    "extract_method": f"csv_decode:{encoding}",
+                },
+            )
+            if section:
+                yield section
+            del cells, section
     release_memory_after_file()
+
+
+def extract_csv_sections(csv_path: str, progress_callback: Optional[Callable[[str], None]] = None) -> List[Dict[str, Any]]:
+    return list(iter_csv_sections(csv_path, progress_callback=progress_callback))
+
+
+def iter_txt_sections(txt_path: str) -> Iterator[Dict[str, Any]]:
+    encoding = detect_text_file_encoding(txt_path)
+    buffer_lines = []
+    buffer_size = 0
+    section_index = 0
+    max_section_chars = 20000
+
+    def flush_buffer() -> Optional[Dict[str, Any]]:
+        nonlocal buffer_lines, buffer_size, section_index
+        text = "\n".join(buffer_lines).strip()
+        buffer_lines = []
+        buffer_size = 0
+        if not text:
+            return None
+        section_index += 1
+        return {
+            "text": f"{source_label('direct_text')} {section_index}:\n{text}",
+            "metadata": {
+                "source_type": "txt",
+                "source_label": source_label("direct_text"),
+                "section_index": section_index,
+                "extract_method": f"text_decode:{encoding}",
+            },
+        }
+
+    try:
+        with open(txt_path, "r", encoding=encoding, errors="replace", newline=None) as source:
+            for line in source:
+                normalized = line.rstrip("\n\r")
+                buffer_lines.append(normalized)
+                buffer_size += len(normalized) + 1
+                if buffer_size >= max_section_chars:
+                    section = flush_buffer()
+                    if section:
+                        yield section
+                    release_memory_after_file()
+        section = flush_buffer()
+        if section:
+            yield section
+    except Exception as exc:
+        raise ValueError(
+            localized_text(
+                f"Unable to decode the TXT file: {exc}",
+                f"无法解码 TXT 文件：{exc}",
+                f"無法解碼 TXT 文件：{exc}",
+            )
+        ) from exc
+    finally:
+        release_memory_after_file()
 
 
 def extract_txt_sections(txt_path: str) -> List[Dict[str, Any]]:
@@ -1905,6 +2051,9 @@ def iter_document_sections(
     if ext == "xlsx":
         yield from iter_xlsx_sections(file_path, ocr_enhance=ocr_enhance, progress_callback=progress_callback, image_preprocess=image_preprocess)
         return
+    if ext == "csv":
+        yield from iter_csv_sections(file_path, progress_callback=progress_callback)
+        return
     if ext == "txt":
         if progress_callback:
             progress_callback(localized_text("Reading TXT file", "正在读取 TXT 文件", "正在讀取 TXT 文件"))
@@ -1912,9 +2061,9 @@ def iter_document_sections(
         return
     raise ValueError(
         localized_text(
-            "Supported formats are PDF, images, DOCX, PPTX, XLSX, and TXT. Legacy DOC, PPT, and XLS will be converted first when possible.",
-            "当前支持 PDF、图片、DOCX、PPTX、XLSX、TXT；旧版 DOC、PPT、XLS 会先尝试转换为新版格式。",
-            "目前支援 PDF、圖片、DOCX、PPTX、XLSX、TXT；舊版 DOC、PPT、XLS 會先嘗試轉換為新版格式。",
+            "Supported formats are PDF, images, DOCX, PPTX, XLSX, CSV, and TXT. Legacy DOC, PPT, and XLS will be converted first when possible.",
+            "当前支持 PDF、图片、DOCX、PPTX、XLSX、CSV、TXT；旧版 DOC、PPT、XLS 会先尝试转换为新版格式。",
+            "目前支援 PDF、圖片、DOCX、PPTX、XLSX、CSV、TXT；舊版 DOC、PPT、XLS 會先嘗試轉換為新版格式。",
         )
     )
 

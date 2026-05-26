@@ -17,6 +17,7 @@ env/
 .env
 *.local
 /.launcher_lang
+/.launcher_theme
 /start.command
 /start.bat
 /start.ps1

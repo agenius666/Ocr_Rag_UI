@@ -13,8 +13,8 @@ from .ui.library import render_library_tab
 
 
 def run_app() -> None:
-    """Render the full Streamlit UI on every rerun.
-    每次 Streamlit 重跑时重新渲染完整页面。
+    """Render only the selected UI section on each rerun.
+    每次 Streamlit 重跑时只渲染当前选中的功能区，降低页面重跑成本。
     """
     ensure_session_defaults()
     render_global_styles()
@@ -33,35 +33,40 @@ def run_app() -> None:
         )
     )
 
-    tab_upload, tab_search, tab_compliance, tab_batch, tab_config, tab_models, tab_manage = st.tabs(
-        [
-            localized_text("Ingest", "上传入库", "上傳入庫"),
-            localized_text("RAG Chat", "检索问答", "檢索問答"),
-            localized_text("Compliance", "合规分析", "合規分析"),
-            localized_text("Batch Analysis", "批量分析", "批次分析"),
-            localized_text("Settings", "配置中心", "配置中心"),
-            localized_text("Model Status", "模型状态", "模型狀態"),
-            localized_text("Document Library", "文档库管理", "文件庫管理"),
-        ]
-    )
+    section_labels = {
+        "upload": localized_text("Ingest", "上传入库", "上傳入庫"),
+        "search": localized_text("RAG Chat", "检索问答", "檢索問答"),
+        "compliance": localized_text("Compliance", "合规分析", "合規分析"),
+        "batch": localized_text("Batch Analysis", "批量分析", "批次分析"),
+        "settings": localized_text("Settings", "配置中心", "配置中心"),
+        "models": localized_text("Model Status", "模型状态", "模型狀態"),
+        "library": localized_text("Document Library", "文档库管理", "文件庫管理"),
+    }
+    section_order = list(section_labels.keys())
+    with st.container(key="main_navigation_tabs"):
+        selected_section = st.radio(
+            localized_text("Main Navigation", "主导航", "主導覽"),
+            section_order,
+            index=section_order.index(st.session_state.get("main_section", "upload"))
+            if st.session_state.get("main_section", "upload") in section_order
+            else 0,
+            format_func=lambda key: section_labels[key],
+            horizontal=True,
+            label_visibility="collapsed",
+            key="main_section",
+        )
 
-    with tab_upload:
+    if selected_section == "upload":
         render_upload_tab()
-
-    with tab_search:
+    elif selected_section == "search":
         render_search_tab()
-
-    with tab_compliance:
+    elif selected_section == "compliance":
         render_compliance_tab()
-
-    with tab_batch:
+    elif selected_section == "batch":
         render_batch_excel_tab()
-
-    with tab_config:
+    elif selected_section == "settings":
         render_settings_tab()
-
-    with tab_models:
+    elif selected_section == "models":
         render_model_status_tab()
-
-    with tab_manage:
+    elif selected_section == "library":
         render_library_tab()

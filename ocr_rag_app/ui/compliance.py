@@ -228,7 +228,11 @@ def render_compliance_tab() -> None:
     with st.form("compliance_chat_form", clear_on_submit=True):
         topic = st.text_area(
             "输入合规分析问题",
-            placeholder="例如：数据安全管理制度是否满足监管要求？供应商准入流程有什么合规缺口？",
+            placeholder=localized_text(
+                "Example: Does the data security policy meet regulatory requirements? What compliance gaps exist in the supplier onboarding process?",
+                "例如：数据安全管理制度是否满足监管要求？供应商准入流程有什么合规缺口？",
+                "例如：資料安全管理制度是否滿足監管要求？供應商准入流程有什麼合規缺口？",
+            ),
             height=88,
             key="compliance_chat_text",
         )

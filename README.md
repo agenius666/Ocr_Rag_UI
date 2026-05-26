@@ -17,7 +17,7 @@ Chunk the text
 ↓
 Create embeddings with BAAI/bge-m3
 ↓
-Store vectors in local Qdrant
+Store vectors in local Qdrant or an HTTP/Docker Qdrant service
 ↓
 Ask questions or run compliance analysis
 ↓
@@ -29,16 +29,17 @@ Generate answers through a local LLM endpoint
 ### Features
 
 - Upload single files, multiple files, or folders with subfolders.
-- Supported formats: `PDF`, `PNG`, `JPG`, `JPEG`, `WEBP`, `BMP`, `DOCX`, `PPTX`, `XLSX`, `TXT`, `DOC`, `PPT`, `XLS`.
+- Supported formats: `PDF`, `PNG`, `JPG`, `JPEG`, `WEBP`, `BMP`, `DOCX`, `PPTX`, `XLSX`, `CSV`, `TXT`, `DOC`, `PPT`, `XLS`.
 - PDF mixed parsing: direct text extraction plus OCR when needed.
 - DOCX / PPTX / XLSX parsing with text, tables, and embedded-image OCR.
-- TXT parsing with common UTF encodings, GB18030, and Big5.
+- TXT and CSV parsing with automatic encoding detection for common UTF encodings, GB18030, Big5, and related fallbacks.
 - Legacy Office files can be converted through LibreOffice.
 - PPT/PPTX can be rasterized to page images and OCRed to reduce memory pressure from complex slide objects.
 - Oversized XLSX/XLS files can be skipped by row-count threshold.
 - `BAAI/bge-m3` embeddings.
 - Optional `BAAI/bge-reranker-v2-m3` reranking.
-- Local Qdrant vector store.
+- Qdrant vector store through local files or HTTP/Docker connection.
+- Local-to-HTTP Qdrant migration copies existing vectors without re-OCR or re-embedding.
 - Multi-turn RAG chat with saved sessions.
 - Multi-turn compliance gap analysis with saved sessions.
 - Clause-by-clause comparison between regulations and enterprise evidence.
@@ -167,6 +168,8 @@ Windows PowerShell:
 powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 ```
 
+The launcher includes `Theme Settings`, which writes the selected `light` or `dark` theme to `.streamlit/config.toml` before Streamlit starts. Restart the app after changing the theme.
+
 Open:
 
 ```text
@@ -233,7 +236,7 @@ Model cache paths can be configured in `Settings`.
 ### Reset And Backup
 
 - `Settings > Reset` clears configurable settings and chat history.
-- `Library > Vector Store Backup / Import / Export` can export or restore Qdrant data plus `app_state.sqlite3`.
+- `Library > Vector Store Backup / Import / Export` can export or restore Qdrant vector-store data.
 - `Library > Clear Qdrant Vector Store` clears the vector library and deduplication records.
 
 ## 简体中文
@@ -255,7 +258,7 @@ Model cache paths can be configured in `Settings`.
 ↓
 BAAI/bge-m3 生成向量
 ↓
-写入本地 Qdrant 向量库
+写入本地 Qdrant 或 HTTP/Docker Qdrant 向量库
 ↓
 用户提问 / 合规分析
 ↓
@@ -267,16 +270,17 @@ BAAI/bge-m3 生成向量
 ### 功能
 
 - 支持上传单文件、多文件或文件夹，包含子文件夹。
-- 支持格式：`PDF`、`PNG`、`JPG`、`JPEG`、`WEBP`、`BMP`、`DOCX`、`PPTX`、`XLSX`、`TXT`、`DOC`、`PPT`、`XLS`。
+- 支持格式：`PDF`、`PNG`、`JPG`、`JPEG`、`WEBP`、`BMP`、`DOCX`、`PPTX`、`XLSX`、`CSV`、`TXT`、`DOC`、`PPT`、`XLS`。
 - PDF 支持文字提取和 OCR 混合解析。
 - DOCX / PPTX / XLSX 支持文本、表格和内嵌图片 OCR。
-- TXT 支持常见 UTF 编码、GB18030 和 Big5。
+- TXT 和 CSV 支持自动识别常见 UTF 编码、GB18030、Big5 及相关兜底编码。
 - 老版 Office 文件可通过 LibreOffice 转换后解析。
 - PPT/PPTX 可先栅格化为页面图像后 OCR，降低复杂幻灯片对象带来的内存压力。
 - 可按行数阈值跳过超大 XLSX/XLS 文件。
 - 使用 `BAAI/bge-m3` 生成文本向量。
 - 可选使用 `BAAI/bge-reranker-v2-m3` 做检索结果重排。
-- 使用本地 Qdrant 保存向量库。
+- 支持使用本地文件 Qdrant 或 HTTP/Docker Qdrant 保存向量库。
+- 支持将本地 Qdrant 向量点迁移到 HTTP/Docker Qdrant，不需要重新 OCR 或重新生成向量。
 - 支持多轮检索问答和历史会话保存。
 - 支持多轮合规差距分析和历史会话保存。
 - 支持按监管条款逐条对照企业资料。
@@ -405,6 +409,8 @@ Windows PowerShell：
 powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 ```
 
+启动器内置“主题设置”，会在启动 Streamlit 前把选择的浅色或深色主题写入 `.streamlit/config.toml`。修改主题后请重新启动程序。
+
 浏览器打开：
 
 ```text
@@ -471,7 +477,7 @@ ocr_rag_ui/
 ### 初始化和备份
 
 - “配置中心 / Settings > 初始化 / Reset”会清空可配置项和历史会话。
-- “文档库管理 / Library > 向量库备份 / 导入 / 导出”可以导出或恢复 Qdrant 数据和 `app_state.sqlite3`。
+- “文档库管理 / Library > 向量库备份 / 导入 / 导出”可以导出或恢复 Qdrant 向量库数据。
 - “文档库管理 / Library > 清空 Qdrant 向量库”会清空向量库和去重记录。
 
 ## 繁體中文
@@ -493,7 +499,7 @@ ocr_rag_ui/
 ↓
 BAAI/bge-m3 生成向量
 ↓
-寫入本地 Qdrant 向量庫
+寫入本地 Qdrant 或 HTTP/Docker Qdrant 向量庫
 ↓
 使用者提問 / 合規分析
 ↓
@@ -505,16 +511,17 @@ BAAI/bge-m3 生成向量
 ### 功能
 
 - 支援上傳單文件、多文件或資料夾，包含子資料夾。
-- 支援格式：`PDF`、`PNG`、`JPG`、`JPEG`、`WEBP`、`BMP`、`DOCX`、`PPTX`、`XLSX`、`TXT`、`DOC`、`PPT`、`XLS`。
+- 支援格式：`PDF`、`PNG`、`JPG`、`JPEG`、`WEBP`、`BMP`、`DOCX`、`PPTX`、`XLSX`、`CSV`、`TXT`、`DOC`、`PPT`、`XLS`。
 - PDF 支援文字提取和 OCR 混合解析。
 - DOCX / PPTX / XLSX 支援文字、表格和內嵌圖片 OCR。
-- TXT 支援常見 UTF 編碼、GB18030 和 Big5。
+- TXT 和 CSV 支援自動識別常見 UTF 編碼、GB18030、Big5 及相關兜底編碼。
 - 舊版 Office 文件可通過 LibreOffice 轉換後解析。
 - PPT/PPTX 可先柵格化為頁面圖像後 OCR，降低複雜投影片物件帶來的記憶體壓力。
 - 可按行數閾值跳過超大 XLSX/XLS 文件。
 - 使用 `BAAI/bge-m3` 生成文字向量。
 - 可選使用 `BAAI/bge-reranker-v2-m3` 做檢索結果重排。
-- 使用本地 Qdrant 保存向量庫。
+- 支援使用本地文件 Qdrant 或 HTTP/Docker Qdrant 保存向量庫。
+- 支援將本地 Qdrant 向量點遷移到 HTTP/Docker Qdrant，不需要重新 OCR 或重新生成向量。
 - 支援多輪檢索問答和歷史會話保存。
 - 支援多輪合規差距分析和歷史會話保存。
 - 支援按監管條款逐條對照企業資料。
@@ -643,6 +650,8 @@ Windows PowerShell：
 powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 ```
 
+啟動器內建「主題設定」，會在啟動 Streamlit 前把選擇的淺色或深色主題寫入 `.streamlit/config.toml`。修改主題後請重新啟動程式。
+
 瀏覽器打開：
 
 ```text
@@ -709,5 +718,5 @@ ocr_rag_ui/
 ### 初始化和備份
 
 - `Settings > Reset` 會清空可配置項和歷史會話。
-- `Library > Vector Store Backup / Import / Export` 可以導出或恢復 Qdrant 數據和 `app_state.sqlite3`。
+- `Library > Vector Store Backup / Import / Export` 可以導出或恢復 Qdrant 向量庫數據。
 - `Library > Clear Qdrant Vector Store` 會清空向量庫和去重記錄。

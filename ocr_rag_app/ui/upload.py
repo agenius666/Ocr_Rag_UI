@@ -103,263 +103,290 @@ def render_upload_tab() -> None:
     doc_label = st.text_input(
         "资料名称 / 备注",
         value="",
-        placeholder="批量上传时留空会使用各自文件名",
-    )
-    ocr_enhance = st.checkbox(
-        "启用 Office 内嵌图片 OCR",
-        value=get_bool_config("upload_ocr_enhance", True),
-        key="upload_ocr_enhance",
-        help=localized_text(
-            "DOCX/PPTX/XLSX embedded images are extracted and OCRed. For PDF OCR behavior, see PDF OCR Mode below.",
-            "DOCX/PPTX/XLSX 会提取内嵌图片并 OCR。PDF 的 OCR 策略请看下面的 PDF OCR 模式。",
-            "DOCX/PPTX/XLSX 會提取內嵌圖片並 OCR。PDF 的 OCR 策略請看下面的 PDF OCR 模式。",
+        placeholder=localized_text(
+            "Leave empty during batch upload to use each original file name",
+            "批量上传时留空会使用各自文件名",
+            "批量上傳時留空會使用各自文件名",
         ),
     )
-    set_bool_config("upload_ocr_enhance", ocr_enhance)
-    ppt_visual_ocr = st.checkbox(
-        "将 PPT/PPTX 栅格化后 OCR",
-        value=get_bool_config("ppt_visual_ocr", True),
-        key="upload_ppt_visual_ocr",
-        help=localized_text(
-            "Rasterization-based OCR renders each slide to a static page through LibreOffice, then OCRs the page image. This avoids Python parsing complex presentation objects and usually lowers memory pressure, but editable text structure is not preserved.",
-            "栅格化 OCR 会先通过 LibreOffice 将每页幻灯片渲染成静态页面，再对页面图像 OCR。这样可避免 Python 解析复杂演示文稿对象，通常能降低内存压力，但不会保留可编辑文本结构。",
-            "柵格化 OCR 會先透過 LibreOffice 將每頁投影片渲染成靜態頁面，再對頁面圖像 OCR。這樣可避免 Python 解析複雜簡報物件，通常能降低記憶體壓力，但不會保留可編輯文字結構。",
-        ),
-    )
-    set_bool_config("ppt_visual_ocr", ppt_visual_ocr)
-
-    image_preprocess_mode_labels = list(IMAGE_PREPROCESS_MODE_OPTIONS.keys())
-    saved_image_preprocess_mode_label = get_config_value(
-        "image_preprocess_mode_label",
-        DEFAULT_IMAGE_PREPROCESS_MODE_LABEL,
-    )
-    if saved_image_preprocess_mode_label not in image_preprocess_mode_labels:
-        saved_image_preprocess_mode_label = DEFAULT_IMAGE_PREPROCESS_MODE_LABEL
-    image_preprocess_mode_label = st.selectbox(
-        localized_text("Image OCR Preprocessing", "图片 OCR 预处理", "圖片 OCR 預處理"),
-        image_preprocess_mode_labels,
-        index=image_preprocess_mode_labels.index(saved_image_preprocess_mode_label),
-        key="image_preprocess_mode_label",
-        help=localized_text(
-            "Controls OCR image resolution before recognition. Original files are not modified.",
-            "识别前控制图片分辨率以降低 OCR 内存占用；原始文件不会被修改。",
-            "識別前控制圖片解析度以降低 OCR 記憶體占用；原始文件不會被修改。",
-        ),
-    )
-    set_config_value("image_preprocess_mode_label", image_preprocess_mode_label)
-    image_preprocess_mode = IMAGE_PREPROCESS_MODE_OPTIONS[image_preprocess_mode_label]
-    image_preprocess_preset = IMAGE_PREPROCESS_PRESETS[image_preprocess_mode]
-    st.caption(
-        localized_text(
-            "Recommended for phone photos, scanned images, PDF page OCR, PPT rasterization OCR, and Office embedded images.",
-            "适用于手机照片、扫描图片、PDF 页面 OCR、PPT 栅格化 OCR 和 Office 内嵌图片。",
-            "適用於手機照片、掃描圖片、PDF 頁面 OCR、PPT 柵格化 OCR 和 Office 內嵌圖片。",
+    with st.expander(
+        localized_text("Advanced Ingestion Parameters", "高级入库参数", "進階入庫參數"),
+        expanded=False,
+    ):
+        st.warning(
+            localized_text(
+                "These settings affect OCR accuracy, memory usage, and ingestion time. Review them before processing large PDFs, PPT files, phone photos, or large spreadsheets; overly aggressive settings may cause long freezes or process termination.",
+                "这些设置会影响 OCR 精度、内存占用和入库耗时。处理大 PDF、PPT、手机照片或大型表格前请先确认；参数过高可能导致长时间卡顿或进程被系统终止。",
+                "這些設定會影響 OCR 精度、記憶體占用和入庫耗時。處理大型 PDF、PPT、手機照片或大型表格前請先確認；參數過高可能導致長時間卡頓或進程被系統終止。",
+            )
         )
-    )
-    with st.expander(localized_text("Advanced Image Parameters", "图片预处理高级参数", "圖片預處理進階參數"), expanded=False):
-        image_preprocess_custom = st.checkbox(
-            localized_text("Use custom image preprocessing parameters", "使用自定义图片预处理参数", "使用自訂圖片預處理參數"),
-            value=get_bool_config("image_preprocess_custom", False),
-            key="image_preprocess_custom",
-            disabled=image_preprocess_mode == "off",
+        ocr_enhance = st.checkbox(
+            "启用 Office 内嵌图片 OCR",
+            value=get_bool_config("upload_ocr_enhance", True),
+            key="upload_ocr_enhance",
             help=localized_text(
-                "When disabled, the selected mode preset is used.",
-                "关闭时使用所选模式的内置参数。",
-                "關閉時使用所選模式的內建參數。",
+                "DOCX/PPTX/XLSX embedded images are extracted and OCRed. For PDF OCR behavior, see PDF OCR Mode below.",
+                "DOCX/PPTX/XLSX 会提取内嵌图片并 OCR。PDF 的 OCR 策略请看下面的 PDF OCR 模式。",
+                "DOCX/PPTX/XLSX 會提取內嵌圖片並 OCR。PDF 的 OCR 策略請看下面的 PDF OCR 模式。",
             ),
         )
-        set_bool_config("image_preprocess_custom", image_preprocess_custom)
-        adv_col1, adv_col2 = st.columns(2)
-        with adv_col1:
-            image_preprocess_max_side = int(
-                st.number_input(
-                    localized_text("Max Long Side (px)", "最长边上限（像素）", "最長邊上限（像素）"),
-                    min_value=800,
-                    max_value=6000,
-                    value=min(max(get_int_config("image_preprocess_max_side", image_preprocess_preset["max_side"] or 2400), 800), 6000),
-                    step=100,
-                    key="image_preprocess_max_side",
+        set_bool_config("upload_ocr_enhance", ocr_enhance)
+        ppt_visual_ocr = st.checkbox(
+            "将 PPT/PPTX 栅格化后 OCR",
+            value=get_bool_config("ppt_visual_ocr", True),
+            key="upload_ppt_visual_ocr",
+            help=localized_text(
+                "Rasterization-based OCR renders each slide to a static page through LibreOffice, then OCRs the page image. This avoids Python parsing complex presentation objects and usually lowers memory pressure, but editable text structure is not preserved.",
+                "栅格化 OCR 会先通过 LibreOffice 将每页幻灯片渲染成静态页面，再对页面图像 OCR。这样可避免 Python 解析复杂演示文稿对象，通常能降低内存压力，但不会保留可编辑文本结构。",
+                "柵格化 OCR 會先透過 LibreOffice 將每頁投影片渲染成靜態頁面，再對頁面圖像 OCR。這樣可避免 Python 解析複雜簡報物件，通常能降低記憶體壓力，但不會保留可編輯文字結構。",
+            ),
+        )
+        set_bool_config("ppt_visual_ocr", ppt_visual_ocr)
+
+        image_preprocess_modes = list(IMAGE_PREPROCESS_MODE_OPTIONS.keys())
+        saved_image_preprocess_mode = normalize_image_preprocess_mode(
+            get_config_value(
+                "image_preprocess_mode",
+                get_config_value("image_preprocess_mode_label", DEFAULT_IMAGE_PREPROCESS_MODE),
+            )
+        )
+        existing_image_preprocess_mode = st.session_state.get("image_preprocess_mode")
+        if existing_image_preprocess_mode is not None and existing_image_preprocess_mode not in image_preprocess_modes:
+            st.session_state["image_preprocess_mode"] = normalize_image_preprocess_mode(existing_image_preprocess_mode)
+        image_preprocess_mode = st.selectbox(
+            localized_text("Image OCR Preprocessing", "图片 OCR 预处理", "圖片 OCR 預處理"),
+            image_preprocess_modes,
+            index=image_preprocess_modes.index(saved_image_preprocess_mode),
+            format_func=image_preprocess_mode_label,
+            key="image_preprocess_mode",
+            help=localized_text(
+                "Controls OCR image resolution before recognition. Original files are not modified.",
+                "识别前控制图片分辨率以降低 OCR 内存占用；原始文件不会被修改。",
+                "識別前控制圖片解析度以降低 OCR 記憶體占用；原始文件不會被修改。",
+            ),
+        )
+        set_config_value("image_preprocess_mode", image_preprocess_mode)
+        set_config_value("image_preprocess_mode_label", image_preprocess_mode_label(image_preprocess_mode))
+        image_preprocess_preset = IMAGE_PREPROCESS_PRESETS[image_preprocess_mode]
+        st.caption(
+            localized_text(
+                "Recommended for phone photos, scanned images, PDF page OCR, PPT rasterization OCR, and Office embedded images.",
+                "适用于手机照片、扫描图片、PDF 页面 OCR、PPT 栅格化 OCR 和 Office 内嵌图片。",
+                "適用於手機照片、掃描圖片、PDF 頁面 OCR、PPT 柵格化 OCR 和 Office 內嵌圖片。",
+            )
+        )
+        with st.expander(localized_text("Advanced Image Parameters", "图片预处理高级参数", "圖片預處理進階參數"), expanded=False):
+            image_preprocess_custom = st.checkbox(
+                localized_text("Use custom image preprocessing parameters", "使用自定义图片预处理参数", "使用自訂圖片預處理參數"),
+                value=get_bool_config("image_preprocess_custom", False),
+                key="image_preprocess_custom",
+                disabled=image_preprocess_mode == "off",
+                help=localized_text(
+                    "When disabled, the selected mode preset is used.",
+                    "关闭时使用所选模式的内置参数。",
+                    "關閉時使用所選模式的內建參數。",
+                ),
+            )
+            set_bool_config("image_preprocess_custom", image_preprocess_custom)
+            adv_col1, adv_col2 = st.columns(2)
+            with adv_col1:
+                image_preprocess_max_side = int(
+                    st.number_input(
+                        localized_text("Max Long Side (px)", "最长边上限（像素）", "最長邊上限（像素）"),
+                        min_value=800,
+                        max_value=6000,
+                        value=min(max(get_int_config("image_preprocess_max_side", image_preprocess_preset["max_side"] or 2400), 800), 6000),
+                        step=100,
+                        key="image_preprocess_max_side",
+                        disabled=(not image_preprocess_custom) or image_preprocess_mode == "off",
+                    )
+                )
+                image_preprocess_max_pixels = int(
+                    st.number_input(
+                        localized_text("Max Pixels", "最大像素数", "最大像素數"),
+                        min_value=1_000_000,
+                        max_value=30_000_000,
+                        value=min(max(get_int_config("image_preprocess_max_pixels", image_preprocess_preset["max_pixels"] or 5_000_000), 1_000_000), 30_000_000),
+                        step=500_000,
+                        key="image_preprocess_max_pixels",
+                        disabled=(not image_preprocess_custom) or image_preprocess_mode == "off",
+                    )
+                )
+            with adv_col2:
+                image_preprocess_jpeg_quality = int(
+                    st.slider(
+                        localized_text("JPEG Quality", "JPEG 质量", "JPEG 品質"),
+                        min_value=60,
+                        max_value=100,
+                        value=min(max(get_int_config("image_preprocess_jpeg_quality", image_preprocess_preset["jpeg_quality"]), 60), 100),
+                        step=1,
+                        key="image_preprocess_jpeg_quality",
+                        disabled=(not image_preprocess_custom) or image_preprocess_mode == "off",
+                    )
+                )
+                image_preprocess_grayscale = st.checkbox(
+                    localized_text("Convert to grayscale before OCR", "OCR 前转为灰度图", "OCR 前轉為灰階圖"),
+                    value=get_bool_config("image_preprocess_grayscale", bool(image_preprocess_preset["grayscale"])),
+                    key="image_preprocess_grayscale",
                     disabled=(not image_preprocess_custom) or image_preprocess_mode == "off",
                 )
-            )
-            image_preprocess_max_pixels = int(
-                st.number_input(
-                    localized_text("Max Pixels", "最大像素数", "最大像素數"),
-                    min_value=1_000_000,
-                    max_value=30_000_000,
-                    value=min(max(get_int_config("image_preprocess_max_pixels", image_preprocess_preset["max_pixels"] or 5_000_000), 1_000_000), 30_000_000),
-                    step=500_000,
-                    key="image_preprocess_max_pixels",
-                    disabled=(not image_preprocess_custom) or image_preprocess_mode == "off",
+            set_config_value("image_preprocess_max_side", image_preprocess_max_side)
+            set_config_value("image_preprocess_max_pixels", image_preprocess_max_pixels)
+            set_config_value("image_preprocess_jpeg_quality", image_preprocess_jpeg_quality)
+            set_bool_config("image_preprocess_grayscale", image_preprocess_grayscale)
+            if image_preprocess_mode != "off":
+                effective = dict(image_preprocess_preset)
+                if image_preprocess_custom:
+                    effective.update(
+                        {
+                            "max_side": image_preprocess_max_side,
+                            "max_pixels": image_preprocess_max_pixels,
+                            "jpeg_quality": image_preprocess_jpeg_quality,
+                            "grayscale": image_preprocess_grayscale,
+                        }
+                    )
+                st.caption(
+                    localized_text("Effective parameters: ", "当前生效参数：", "目前生效參數：")
+                    + localized_text("max side ", "最长边 ", "最長邊 ")
+                    + f"{effective['max_side']} px; "
+                    + localized_text("max pixels ", "最大像素 ", "最大像素 ")
+                    + f"{effective['max_pixels']}; "
+                    + localized_text("JPEG quality ", "JPEG 质量 ", "JPEG 品質 ")
+                    + f"{effective['jpeg_quality']}; "
+                    + localized_text("grayscale ", "灰度 ", "灰階 ")
+                    + ("on" if effective["grayscale"] else "off")
                 )
-            )
-        with adv_col2:
-            image_preprocess_jpeg_quality = int(
-                st.slider(
-                    localized_text("JPEG Quality", "JPEG 质量", "JPEG 品質"),
-                    min_value=60,
-                    max_value=100,
-                    value=min(max(get_int_config("image_preprocess_jpeg_quality", image_preprocess_preset["jpeg_quality"]), 60), 100),
-                    step=1,
-                    key="image_preprocess_jpeg_quality",
-                    disabled=(not image_preprocess_custom) or image_preprocess_mode == "off",
-                )
-            )
-            image_preprocess_grayscale = st.checkbox(
-                localized_text("Convert to grayscale before OCR", "OCR 前转为灰度图", "OCR 前轉為灰階圖"),
-                value=get_bool_config("image_preprocess_grayscale", bool(image_preprocess_preset["grayscale"])),
-                key="image_preprocess_grayscale",
-                disabled=(not image_preprocess_custom) or image_preprocess_mode == "off",
-            )
-        set_config_value("image_preprocess_max_side", image_preprocess_max_side)
-        set_config_value("image_preprocess_max_pixels", image_preprocess_max_pixels)
-        set_config_value("image_preprocess_jpeg_quality", image_preprocess_jpeg_quality)
-        set_bool_config("image_preprocess_grayscale", image_preprocess_grayscale)
-        if image_preprocess_mode != "off":
-            effective = dict(image_preprocess_preset)
-            if image_preprocess_custom:
-                effective.update(
-                    {
-                        "max_side": image_preprocess_max_side,
-                        "max_pixels": image_preprocess_max_pixels,
-                        "jpeg_quality": image_preprocess_jpeg_quality,
-                        "grayscale": image_preprocess_grayscale,
-                    }
-                )
-            st.caption(
-                localized_text("Effective parameters: ", "当前生效参数：", "目前生效參數：")
-                + localized_text("max side ", "最长边 ", "最長邊 ")
-                + f"{effective['max_side']} px; "
-                + localized_text("max pixels ", "最大像素 ", "最大像素 ")
-                + f"{effective['max_pixels']}; "
-                + localized_text("JPEG quality ", "JPEG 质量 ", "JPEG 品質 ")
-                + f"{effective['jpeg_quality']}; "
-                + localized_text("grayscale ", "灰度 ", "灰階 ")
-                + ("on" if effective["grayscale"] else "off")
-            )
 
-    image_preprocess = {
-        "mode": image_preprocess_mode,
-        "custom": image_preprocess_custom,
-        "max_side": image_preprocess_max_side,
-        "max_pixels": image_preprocess_max_pixels,
-        "jpeg_quality": image_preprocess_jpeg_quality,
-        "grayscale": image_preprocess_grayscale,
-    }
+        image_preprocess = {
+            "mode": image_preprocess_mode,
+            "custom": image_preprocess_custom,
+            "max_side": image_preprocess_max_side,
+            "max_pixels": image_preprocess_max_pixels,
+            "jpeg_quality": image_preprocess_jpeg_quality,
+            "grayscale": image_preprocess_grayscale,
+        }
 
-    auto_unload_models_after_ingest = st.checkbox(
-        "入库完成后自动释放 OCR / BGE-M3 模型缓存",
-        value=get_bool_config("auto_unload_models_after_ingest", False),
-        key="auto_unload_models_after_ingest",
-        help=localized_text(
-            "Useful for machines with limited memory. Models will be reloaded on the next ingestion or retrieval.",
-            "适合内存较小的机器；下次入库或检索会重新加载模型。",
-            "適合記憶體較小的機器；下次入庫或檢索會重新載入模型。",
-        ),
-    )
-    set_bool_config("auto_unload_models_after_ingest", auto_unload_models_after_ingest)
-    replace_changed_same_name = st.checkbox(
-        "同名文件变更时替换旧版本",
-        value=get_bool_config("replace_changed_same_name", True),
-        key="replace_changed_same_name_input",
-        help=localized_text(
-            "When a file at the same path has a different SHA256, old chunks and deduplication records are deleted before writing the new version.",
-            "同一路径文件 SHA256 变化时，会先删除旧 chunk 和去重记录，再写入新版本。",
-            "同一路徑文件 SHA256 變化時，會先刪除舊 chunk 和去重記錄，再寫入新版本。",
-        ),
-    )
-    set_bool_config("replace_changed_same_name", replace_changed_same_name)
-    background_ingest = st.checkbox(
-        "后台入库队列",
-        value=get_bool_config("background_ingest", DEFAULT_BACKGROUND_INGEST),
-        key="background_ingest_input",
-        help=localized_text(
-            "After submission, a single in-app worker processes files in the background. The page remains usable and supports pause, resume, and stop.",
-            "提交后由应用内单 worker 后台处理，页面可继续操作，并支持暂停、继续和终止。",
-            "提交後由應用內單 worker 後台處理，頁面可繼續操作，並支援暫停、繼續和終止。",
-        ),
-    )
-    set_bool_config("background_ingest", background_ingest)
-    skip_large_excel = st.checkbox(
-        "跳过超大 Excel 文件",
-        value=get_bool_config("skip_large_excel", False),
-        key="skip_large_excel_input",
-        help="启用后，XLSX 和 XLS 的工作表最大行号合计超过阈值时会直接跳过，不解析、不切分、不写入向量库。",
-    )
-    set_bool_config("skip_large_excel", skip_large_excel)
-    saved_excel_row_limit = max(get_int_config("excel_row_limit", 100000), 1)
-    excel_row_limit = int(
-        st.number_input(
-            "Excel 最大行数",
-            min_value=1,
-            max_value=2_000_000,
-            value=saved_excel_row_limit,
-            step=10000,
-            disabled=not skip_large_excel,
-            key="excel_row_limit_input",
-            help="超过该行数的 XLSX/XLS 文件会跳过入库。按所有工作表 max_row 合计计算。",
+        auto_unload_models_after_ingest = st.checkbox(
+            "入库完成后自动释放 OCR / BGE-M3 模型缓存",
+            value=get_bool_config("auto_unload_models_after_ingest", False),
+            key="auto_unload_models_after_ingest",
+            help=localized_text(
+                "Useful for machines with limited memory. Models will be reloaded on the next ingestion or retrieval.",
+                "适合内存较小的机器；下次入库或检索会重新加载模型。",
+                "適合記憶體較小的機器；下次入庫或檢索會重新載入模型。",
+            ),
         )
-    )
-    set_config_value("excel_row_limit", excel_row_limit)
-    active_ocr_config = get_paddleocr_model_config()
-    st.caption(
-        localized_text("Current PaddleOCR model: ", "当前 PaddleOCR 模型：", "當前 PaddleOCR 模型：")
-        + f"{translate_text(get_paddleocr_model_label())} | {active_ocr_config['det']} / {active_ocr_config['rec']}"
-    )
-
-    pdf_ocr_mode_labels = list(PDF_OCR_MODE_OPTIONS.keys())
-    saved_pdf_ocr_mode_label = get_config_value("upload_pdf_ocr_mode_label", pdf_ocr_mode_labels[0])
-    if saved_pdf_ocr_mode_label not in pdf_ocr_mode_labels:
-        saved_pdf_ocr_mode_label = pdf_ocr_mode_labels[0]
-    pdf_ocr_mode_label = st.selectbox(
-        "PDF OCR 模式",
-        pdf_ocr_mode_labels,
-        index=pdf_ocr_mode_labels.index(saved_pdf_ocr_mode_label),
-        key="upload_pdf_ocr_mode_label",
-        help=localized_text(
-            "Smart OCR only processes PDF pages with little direct text. Force OCR is most complete, but large PDFs can be slow and memory-intensive.",
-            "智能 OCR 只处理文字很少的 PDF 页。强制每页 OCR 最完整，但大 PDF 可能非常慢且占内存。",
-            "智慧 OCR 只處理文字很少的 PDF 頁。強制每頁 OCR 最完整，但大 PDF 可能非常慢且佔記憶體。",
-        ),
-    )
-    set_config_value("upload_pdf_ocr_mode_label", pdf_ocr_mode_label)
-    pdf_ocr_mode = PDF_OCR_MODE_OPTIONS[pdf_ocr_mode_label]
-    auto_install_libreoffice = st.checkbox(
-        "缺少 LibreOffice 时自动下载安装转换工具",
-        value=get_bool_config("auto_install_libreoffice", True),
-        key="auto_install_libreoffice",
-        help=localized_text(
-            "Automatically converts legacy DOC/PPT/XLS Office files. Windows/Linux may require administrator privileges.",
-            "用于自动转换 DOC/PPT/XLS 老版 Office 文件。Windows/Linux 可能需要管理员权限。",
-            "用於自動轉換 DOC/PPT/XLS 舊版 Office 文件。Windows/Linux 可能需要管理員權限。",
-        ),
-    )
-    set_bool_config("auto_install_libreoffice", auto_install_libreoffice)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        saved_chunk_size = min(max(get_int_config("upload_chunk_size", 600), 300), 1500)
-        chunk_size = st.slider(
-            "Chunk 大小",
-            min_value=300,
-            max_value=1500,
-            value=saved_chunk_size,
-            step=100,
-            key="upload_chunk_size",
+        set_bool_config("auto_unload_models_after_ingest", auto_unload_models_after_ingest)
+        replace_changed_same_name = st.checkbox(
+            "同名文件变更时替换旧版本",
+            value=get_bool_config("replace_changed_same_name", True),
+            key="replace_changed_same_name_input",
+            help=localized_text(
+                "When a file at the same path has a different SHA256, old chunks and deduplication records are deleted before writing the new version.",
+                "同一路径文件 SHA256 变化时，会先删除旧 chunk 和去重记录，再写入新版本。",
+                "同一路徑文件 SHA256 變化時，會先刪除舊 chunk 和去重記錄，再寫入新版本。",
+            ),
         )
-        set_config_value("upload_chunk_size", chunk_size)
-    with col2:
-        overlap_max = min(300, chunk_size - 50)
-        saved_overlap = min(max(get_int_config("upload_overlap", 100), 0), overlap_max)
-        overlap = st.slider(
-            "Chunk 重叠",
-            min_value=0,
-            max_value=overlap_max,
-            value=saved_overlap,
-            step=50,
-            key="upload_overlap",
+        set_bool_config("replace_changed_same_name", replace_changed_same_name)
+        background_ingest = st.checkbox(
+            "后台入库队列",
+            value=get_bool_config("background_ingest", DEFAULT_BACKGROUND_INGEST),
+            key="background_ingest_input",
+            help=localized_text(
+                "After submission, a single in-app worker processes files in the background. The page remains usable and supports pause, resume, and stop.",
+                "提交后由应用内单 worker 后台处理，页面可继续操作，并支持暂停、继续和终止。",
+                "提交後由應用內單 worker 後台處理，頁面可繼續操作，並支援暫停、繼續和終止。",
+            ),
         )
-        set_config_value("upload_overlap", overlap)
+        set_bool_config("background_ingest", background_ingest)
+        skip_large_excel = st.checkbox(
+            localized_text("Skip Oversized Excel / CSV Files", "跳过超大 Excel / CSV 文件", "跳過超大 Excel / CSV 文件"),
+            value=get_bool_config("skip_large_excel", False),
+            key="skip_large_excel_input",
+            help=localized_text(
+                "When enabled, XLSX/XLS files whose combined worksheet max_row values exceed the threshold, or CSV files whose line count exceeds the threshold, are skipped before parsing and vectorization.",
+                "启用后，XLSX/XLS 的工作表最大行号合计或 CSV 行数超过阈值时会直接跳过，不解析、不切分、不写入向量库。",
+                "啟用後，XLSX/XLS 的工作表最大列號合計或 CSV 列數超過閾值時會直接跳過，不解析、不切分、不寫入向量庫。",
+            ),
+        )
+        set_bool_config("skip_large_excel", skip_large_excel)
+        saved_excel_row_limit = max(get_int_config("excel_row_limit", 100000), 1)
+        excel_row_limit = int(
+            st.number_input(
+                localized_text("Excel / CSV Max Rows", "Excel / CSV 最大行数", "Excel / CSV 最大列數"),
+                min_value=1,
+                max_value=2_000_000,
+                value=saved_excel_row_limit,
+                step=10000,
+                disabled=not skip_large_excel,
+                key="excel_row_limit_input",
+                help=localized_text(
+                    "XLSX/XLS/CSV files above this row count are skipped. XLSX/XLS use the combined worksheet max_row values; CSV uses text line count.",
+                    "超过该行数的 XLSX/XLS/CSV 文件会跳过入库；XLSX/XLS 按所有工作表 max_row 合计计算，CSV 按文本行数计算。",
+                    "超過該列數的 XLSX/XLS/CSV 文件會跳過入庫；XLSX/XLS 按所有工作表 max_row 合計計算，CSV 按文字列數計算。",
+                ),
+            )
+        )
+        set_config_value("excel_row_limit", excel_row_limit)
+        active_ocr_config = get_paddleocr_model_config()
+        st.caption(
+            localized_text("Current PaddleOCR model: ", "当前 PaddleOCR 模型：", "當前 PaddleOCR 模型：")
+            + f"{translate_text(get_paddleocr_model_label())} | {active_ocr_config['det']} / {active_ocr_config['rec']}"
+        )
+
+        pdf_ocr_mode_labels = list(PDF_OCR_MODE_OPTIONS.keys())
+        saved_pdf_ocr_mode_label = get_config_value("upload_pdf_ocr_mode_label", pdf_ocr_mode_labels[0])
+        if saved_pdf_ocr_mode_label not in pdf_ocr_mode_labels:
+            saved_pdf_ocr_mode_label = pdf_ocr_mode_labels[0]
+        pdf_ocr_mode_label = st.selectbox(
+            "PDF OCR 模式",
+            pdf_ocr_mode_labels,
+            index=pdf_ocr_mode_labels.index(saved_pdf_ocr_mode_label),
+            key="upload_pdf_ocr_mode_label",
+            help=localized_text(
+                "Smart OCR only processes PDF pages with little direct text. Force OCR is most complete, but large PDFs can be slow and memory-intensive.",
+                "智能 OCR 只处理文字很少的 PDF 页。强制每页 OCR 最完整，但大 PDF 可能非常慢且占内存。",
+                "智慧 OCR 只處理文字很少的 PDF 頁。強制每頁 OCR 最完整，但大 PDF 可能非常慢且佔記憶體。",
+            ),
+        )
+        set_config_value("upload_pdf_ocr_mode_label", pdf_ocr_mode_label)
+        pdf_ocr_mode = PDF_OCR_MODE_OPTIONS[pdf_ocr_mode_label]
+        auto_install_libreoffice = st.checkbox(
+            "缺少 LibreOffice 时自动下载安装转换工具",
+            value=get_bool_config("auto_install_libreoffice", True),
+            key="auto_install_libreoffice",
+            help=localized_text(
+                "Automatically converts legacy DOC/PPT/XLS Office files. Windows/Linux may require administrator privileges.",
+                "用于自动转换 DOC/PPT/XLS 老版 Office 文件。Windows/Linux 可能需要管理员权限。",
+                "用於自動轉換 DOC/PPT/XLS 舊版 Office 文件。Windows/Linux 可能需要管理員權限。",
+            ),
+        )
+        set_bool_config("auto_install_libreoffice", auto_install_libreoffice)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            saved_chunk_size = min(max(get_int_config("upload_chunk_size", 600), 300), 1500)
+            chunk_size = st.slider(
+                "Chunk 大小",
+                min_value=300,
+                max_value=1500,
+                value=saved_chunk_size,
+                step=100,
+                key="upload_chunk_size",
+            )
+            set_config_value("upload_chunk_size", chunk_size)
+        with col2:
+            overlap_max = min(300, chunk_size - 50)
+            saved_overlap = min(max(get_int_config("upload_overlap", 100), 0), overlap_max)
+            overlap = st.slider(
+                "Chunk 重叠",
+                min_value=0,
+                max_value=overlap_max,
+                value=saved_overlap,
+                step=50,
+                key="upload_overlap",
+            )
+            set_config_value("upload_overlap", overlap)
 
     ingest_notice = st.session_state.pop("ingest_notice", "")
     if ingest_notice:
@@ -639,9 +666,9 @@ def render_upload_tab() -> None:
                         if spreadsheet_row_count is not None:
                             status_box.info(
                                 localized_text(
-                                    f"{relative_name}: Excel row count checked: {spreadsheet_row_count}",
-                                    f"{relative_name}：Excel 行数检查完成：{spreadsheet_row_count}",
-                                    f"{relative_name}：Excel 行數檢查完成：{spreadsheet_row_count}",
+                                    f"{relative_name}: spreadsheet row count checked: {spreadsheet_row_count}",
+                                    f"{relative_name}：表格行数检查完成：{spreadsheet_row_count}",
+                                    f"{relative_name}：表格列數檢查完成：{spreadsheet_row_count}",
                                 )
                             )
                     except SpreadsheetRowLimitExceeded as e:

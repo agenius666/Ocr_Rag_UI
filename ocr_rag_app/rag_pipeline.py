@@ -361,9 +361,9 @@ def run_background_ingest_task(
                             file_index - 1,
                             relative_name,
                             localized_text(
-                                f"Excel row count checked: {spreadsheet_row_count}",
-                                f"Excel 行数检查完成：{spreadsheet_row_count}",
-                                f"Excel 行數檢查完成：{spreadsheet_row_count}",
+                                f"Spreadsheet row count checked: {spreadsheet_row_count}",
+                                f"表格行数检查完成：{spreadsheet_row_count}",
+                                f"表格列數檢查完成：{spreadsheet_row_count}",
                             ),
                         )
                 except SpreadsheetRowLimitExceeded as e:
@@ -1412,6 +1412,79 @@ def ask_llm_compliance(
     return response.choices[0].message.content
 
 
+def default_batch_system_prompt_template() -> str:
+    return localized_text(
+        """
+You are a strict batch Excel analysis assistant.
+Use only the retrieved materials and the row-level task prompt to answer.
+Return one valid JSON object only. Do not wrap it in Markdown code fences. Do not add any explanation before or after JSON.
+The JSON keys must exactly match the provided JSON template keys.
+Follow each JSON field instruction, including any length requirement written by the user.
+If the materials are insufficient, write a concise "insufficient evidence" statement in the relevant field.
+{language_instruction}
+""",
+        """
+你是一个严格的批量 Excel 分析助手。
+你只能根据检索资料和当前行的行级任务提示进行回答。
+只返回一个合法 JSON 对象。不要使用 Markdown 代码块，不要在 JSON 前后添加解释。
+JSON key 必须与提供的 JSON 模板完全一致。
+遵循每个 JSON 字段的说明，包括用户写在说明里的字数要求。
+如果资料不足，请在对应字段中简要说明“证据不足”。
+{language_instruction}
+""",
+        """
+你是一個嚴格的批次 Excel 分析助手。
+你只能根據檢索資料和當前列的列級任務提示進行回答。
+只返回一個合法 JSON 物件。不要使用 Markdown 程式碼區塊，不要在 JSON 前後添加解釋。
+JSON key 必須與提供的 JSON 模板完全一致。
+遵循每個 JSON 欄位的說明，包括使用者寫在說明裡的字數要求。
+如果資料不足，請在對應欄位中簡要說明「證據不足」。
+{language_instruction}
+""",
+    )
+
+
+def default_batch_user_prompt_template() -> str:
+    return localized_text(
+        """
+Row prompt after replacing Excel placeholders:
+{row_prompt}
+
+Retrieved materials:
+{context}
+
+Required JSON template:
+{json_template}
+
+Return JSON only.
+""",
+        """
+替换 Excel 占位符后的当前行任务提示：
+{row_prompt}
+
+检索资料：
+{context}
+
+必须返回的 JSON 模板：
+{json_template}
+
+请只返回 JSON。
+""",
+        """
+替換 Excel 佔位符後的當前列任務提示：
+{row_prompt}
+
+檢索資料：
+{context}
+
+必須返回的 JSON 模板：
+{json_template}
+
+請只返回 JSON。
+""",
+    )
+
+
 def ask_llm_batch_excel(
     row_prompt: str,
     json_template: Dict[str, str],
@@ -1420,70 +1493,20 @@ def ask_llm_batch_excel(
 ) -> str:
     context = build_context(search_results) if search_results else source_label("none")
     json_template_text = json.dumps(json_template, ensure_ascii=False, indent=2)
-    system_prompt = localized_text(
-        f"""
-You are a strict batch Excel analysis assistant.
-Use only the retrieved materials and the row-level task prompt to answer.
-Return one valid JSON object only. Do not wrap it in Markdown code fences. Do not add any explanation before or after JSON.
-The JSON keys must exactly match the provided JSON template keys.
-Keep every value within the requested length limit.
-If the materials are insufficient, write a concise "insufficient evidence" statement in the relevant field.
-{llm_language_instruction()}
-""",
-        """
-你是一个严格的批量 Excel 分析助手。
-你只能根据检索资料和当前行的任务提示进行回答。
-只返回一个合法 JSON 对象。不要使用 Markdown 代码块，不要在 JSON 前后添加解释。
-JSON key 必须与提供的 JSON 模板完全一致。
-每个字段都要控制在要求的字数以内。
-如果资料不足，请在对应字段中简要说明“证据不足”。
-""",
-        """
-你是一個嚴格的批次 Excel 分析助手。
-你只能根據檢索資料和當前列的任務提示進行回答。
-只返回一個合法 JSON 物件。不要使用 Markdown 程式碼區塊，不要在 JSON 前後添加解釋。
-JSON key 必須與提供的 JSON 模板完全一致。
-每個欄位都要控制在要求的字數以內。
-如果資料不足，請在對應欄位中簡要說明「證據不足」。
-""",
+    template_values = {
+        "row_prompt": row_prompt,
+        "context": context,
+        "json_template": json_template_text,
+        "json_template_text": json_template_text,
+        "language_instruction": llm_language_instruction(),
+    }
+    system_prompt = render_prompt_template(
+        prompt_config_value("batch_system_prompt", default_batch_system_prompt_template()),
+        template_values,
     )
-    user_prompt = localized_text(
-        f"""
-Row-level task prompt:
-{row_prompt}
-
-Retrieved materials:
-{context}
-
-Required JSON template:
-{json_template_text}
-
-Return JSON only.
-""",
-        f"""
-当前行任务提示：
-{row_prompt}
-
-检索资料：
-{context}
-
-必须返回的 JSON 模板：
-{json_template_text}
-
-请只返回 JSON。
-""",
-        f"""
-當前列任務提示：
-{row_prompt}
-
-檢索資料：
-{context}
-
-必須返回的 JSON 模板：
-{json_template_text}
-
-請只返回 JSON。
-""",
+    user_prompt = render_prompt_template(
+        prompt_config_value("batch_user_prompt_template", default_batch_user_prompt_template()),
+        template_values,
     )
     response = create_llm_chat_completion(
         messages=[

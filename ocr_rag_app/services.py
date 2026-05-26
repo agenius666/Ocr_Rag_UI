@@ -9,6 +9,7 @@ os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 os.environ.setdefault("DISABLE_SAFETENSORS_CONVERSION", "true")
 
 import builtins
+import csv
 import gc
 import hashlib
 import http.client
@@ -62,6 +63,10 @@ UPLOAD_DIR = "uploads"
 QDRANT_DIR = "qdrant_db"
 COLLECTION_NAME = "ocr_rag_docs"
 VECTOR_SIZE = 1024
+DEFAULT_QDRANT_MODE = "local"
+DEFAULT_QDRANT_LOCAL_PATH = QDRANT_DIR
+DEFAULT_QDRANT_URL = "http://127.0.0.1:6333"
+DEFAULT_QDRANT_API_KEY = ""
 EMBEDDING_MODEL_NAME = "BAAI/bge-m3"
 RERANKER_MODEL_NAME = "BAAI/bge-reranker-v2-m3"
 EXTRACTED_IMAGE_DIR = os.path.join(UPLOAD_DIR, "extracted_images")
@@ -122,12 +127,33 @@ OCR_TILE_MAX_SIDE_PIXELS = 3200
 OCR_TILE_OVERLAP_PIXELS = 80
 OCR_BOX_METADATA_LIMIT = 300
 IMAGE_PREPROCESS_MODE_OPTIONS = {
-    "自动（推荐）": "auto",
-    "低内存": "low",
-    "均衡": "balanced",
-    "高精度": "high",
-    "关闭图片预处理": "off",
+    "auto": {
+        "en": "Auto (recommended)",
+        "zh_CN": "自动（推荐）",
+        "zh_TW": "自動（推薦）",
+    },
+    "low": {
+        "en": "Low memory",
+        "zh_CN": "低内存",
+        "zh_TW": "低記憶體",
+    },
+    "balanced": {
+        "en": "Balanced",
+        "zh_CN": "均衡",
+        "zh_TW": "均衡",
+    },
+    "high": {
+        "en": "High accuracy",
+        "zh_CN": "高精度",
+        "zh_TW": "高精度",
+    },
+    "off": {
+        "en": "Disable image preprocessing",
+        "zh_CN": "关闭图片预处理",
+        "zh_TW": "關閉圖片預處理",
+    },
 }
+DEFAULT_IMAGE_PREPROCESS_MODE = "auto"
 DEFAULT_IMAGE_PREPROCESS_MODE_LABEL = "自动（推荐）"
 IMAGE_PREPROCESS_PRESETS = {
     "auto": {"max_side": 2400, "max_pixels": 5_000_000, "jpeg_quality": 90, "grayscale": True},
@@ -149,6 +175,7 @@ MODERN_SUPPORTED_TYPES = [
     "docx",
     "pptx",
     "xlsx",
+    "csv",
     "txt",
 ]
 LEGACY_OFFICE_TYPES = ["doc", "ppt", "xls"]
@@ -178,6 +205,70 @@ GLOBAL_STYLE_CSS = """
     footer {visibility: hidden;}
     [data-testid="stToolbar"] {visibility: hidden; height: 0; position: fixed;}
     [data-testid="stDecoration"] {display: none;}
+
+    .st-key-main_navigation_tabs div[data-testid="stRadio"],
+    div[data-testid="stRadio"][aria-label="Main Navigation"],
+    div[data-testid="stRadio"][aria-label="主导航"],
+    div[data-testid="stRadio"][aria-label="主導覽"] {
+        margin-top: 0.35rem;
+        margin-bottom: 1.6rem;
+    }
+    .st-key-main_navigation_tabs div[data-testid="stRadio"] div[role="radiogroup"],
+    div[data-testid="stRadio"][aria-label="Main Navigation"] div[role="radiogroup"],
+    div[data-testid="stRadio"][aria-label="主导航"] div[role="radiogroup"],
+    div[data-testid="stRadio"][aria-label="主導覽"] div[role="radiogroup"] {
+        align-items: flex-end;
+        gap: 1.45rem;
+        border-bottom: 1px solid rgba(49, 51, 63, 0.18);
+        padding-bottom: 0;
+        min-height: 2.95rem;
+        flex-wrap: wrap;
+    }
+    .st-key-main_navigation_tabs div[data-testid="stRadio"] label,
+    div[data-testid="stRadio"][aria-label="Main Navigation"] label,
+    div[data-testid="stRadio"][aria-label="主导航"] label,
+    div[data-testid="stRadio"][aria-label="主導覽"] label {
+        margin: 0 0 -1px 0;
+        padding: 0.52rem 0 0.72rem 0;
+        border-bottom: 2px solid transparent;
+        border-radius: 0;
+        background: transparent !important;
+        color: #31333f !important;
+        font-weight: 600 !important;
+    }
+    .st-key-main_navigation_tabs div[data-testid="stRadio"] label > div:first-child,
+    div[data-testid="stRadio"][aria-label="Main Navigation"] label > div:first-child,
+    div[data-testid="stRadio"][aria-label="主导航"] label > div:first-child,
+    div[data-testid="stRadio"][aria-label="主導覽"] label > div:first-child {
+        display: none !important;
+    }
+    .st-key-main_navigation_tabs div[data-testid="stRadio"] label:has(input:checked),
+        div[data-testid="stRadio"][aria-label="Main Navigation"] label:has(input:checked),
+    div[data-testid="stRadio"][aria-label="主导航"] label:has(input:checked),
+    div[data-testid="stRadio"][aria-label="主導覽"] label:has(input:checked) {
+        color: #ff4b4b !important;
+        border-bottom-color: #ff4b4b !important;
+        font-weight: 700 !important;
+    }
+    .st-key-main_navigation_tabs div[data-testid="stRadio"] label div[data-testid="stMarkdownContainer"] p,
+    div[data-testid="stRadio"][aria-label="Main Navigation"] label div[data-testid="stMarkdownContainer"] p,
+    div[data-testid="stRadio"][aria-label="主导航"] label div[data-testid="stMarkdownContainer"] p,
+    div[data-testid="stRadio"][aria-label="主導覽"] label div[data-testid="stMarkdownContainer"] p {
+        color: inherit !important;
+        font-weight: inherit;
+        margin-bottom: 0;
+    }
+    .st-key-main_navigation_tabs div[data-testid="stRadio"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p,
+    div[data-testid="stRadio"][aria-label="Main Navigation"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p,
+    div[data-testid="stRadio"][aria-label="主导航"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p,
+    div[data-testid="stRadio"][aria-label="主導覽"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p {
+        color: #ff4b4b !important;
+        font-weight: 700 !important;
+    }
+    .st-key-main_navigation_tabs label:has(input:checked) p {
+        color: #ff4b4b !important;
+        font-weight: 700 !important;
+    }
     </style>
 """
 
@@ -187,6 +278,7 @@ def render_global_styles() -> None:
     每次重跑时注入全局 Streamlit 样式。
     """
     st.markdown(GLOBAL_STYLE_CSS, unsafe_allow_html=True)
+
 
 
 def ensure_session_defaults() -> None:
@@ -877,6 +969,29 @@ def localized_text(en: str, zh_cn: str, zh_tw: Optional[str] = None) -> str:
     return zh_cn
 
 
+def normalize_image_preprocess_mode(value: Any) -> str:
+    """Return the stable image preprocessing mode code from saved code or old labels.
+    从稳定模式代码或旧版显示文案中解析图片预处理模式代码。
+    """
+    raw_value = str(value or "").strip()
+    if raw_value in IMAGE_PREPROCESS_MODE_OPTIONS:
+        return raw_value
+    for mode, labels in IMAGE_PREPROCESS_MODE_OPTIONS.items():
+        if raw_value in labels.values():
+            return mode
+    return DEFAULT_IMAGE_PREPROCESS_MODE
+
+
+def image_preprocess_mode_label(mode: Any) -> str:
+    """Return the localized display label for an image preprocessing mode.
+    返回图片预处理模式的本地化显示名称。
+    """
+    normalized_mode = normalize_image_preprocess_mode(mode)
+    labels = IMAGE_PREPROCESS_MODE_OPTIONS[normalized_mode]
+    language = get_ui_language()
+    return labels.get(language) or labels["en"]
+
+
 def llm_language_name() -> str:
     return localized_text("English", "简体中文", "繁體中文")
 
@@ -1121,6 +1236,61 @@ def normalize_local_path(path_value: str, default: str = "") -> str:
     return os.path.abspath(os.path.expanduser(path_value))
 
 
+def normalize_qdrant_url(url_value: str) -> str:
+    """Normalize the HTTP Qdrant endpoint without forcing a trailing slash.
+    规范化 HTTP Qdrant 连接地址，不强制保留末尾斜杠。
+    """
+    url_value = (url_value or "").strip() or DEFAULT_QDRANT_URL
+    return url_value.rstrip("/")
+
+
+def get_qdrant_config() -> Dict[str, str]:
+    """Return the active Qdrant connection settings from SQLite.
+    从 SQLite 读取当前生效的 Qdrant 连接配置。
+    """
+    mode = get_config_value("qdrant_mode", DEFAULT_QDRANT_MODE)
+    if mode not in {"local", "http"}:
+        mode = DEFAULT_QDRANT_MODE
+    return {
+        "mode": mode,
+        "local_path": normalize_local_path(
+            get_config_value("qdrant_local_path", DEFAULT_QDRANT_LOCAL_PATH),
+            DEFAULT_QDRANT_LOCAL_PATH,
+        ),
+        "url": normalize_qdrant_url(get_config_value("qdrant_url", DEFAULT_QDRANT_URL)),
+        "api_key": get_config_value("qdrant_api_key", DEFAULT_QDRANT_API_KEY).strip(),
+    }
+
+
+def get_qdrant_connection_key(config: Optional[Dict[str, str]] = None) -> str:
+    """Build a cache key for the Qdrant singleton.
+    为 Qdrant 单例构造缓存键。
+    """
+    config = config or get_qdrant_config()
+    if config["mode"] == "http":
+        return f"http::{config['url']}::{bool(config.get('api_key'))}"
+    return f"local::{os.path.abspath(config['local_path'])}"
+
+
+def save_qdrant_config(mode: str, local_path: str, url: str, api_key: str) -> None:
+    """Persist Qdrant connection settings and reset the cached client.
+    保存 Qdrant 连接配置并重置已缓存客户端。
+    """
+    mode = mode if mode in {"local", "http"} else DEFAULT_QDRANT_MODE
+    local_path = normalize_local_path(local_path, DEFAULT_QDRANT_LOCAL_PATH)
+    url = normalize_qdrant_url(url)
+    api_key = (api_key or "").strip()
+    set_config_value("qdrant_mode", mode)
+    set_config_value("qdrant_local_path", local_path)
+    set_config_value("qdrant_url", url)
+    set_config_value("qdrant_api_key", api_key)
+    close_qdrant_singleton()
+    try:
+        load_qdrant_client.clear()
+    except Exception:
+        pass
+
+
 def delete_all_config_values() -> None:
     with APP_DB_LOCK:
         app_db.execute("DELETE FROM app_config")
@@ -1205,6 +1375,27 @@ def list_ingested_files() -> List[Dict[str, Any]]:
             """
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_ingested_file_chunk_counts() -> Dict[str, int]:
+    """Return chunk counts from SQLite ingestion records.
+    从 SQLite 入库记录读取 chunk 统计，避免每次页面重跑都扫描向量库。
+    """
+    with APP_DB_LOCK:
+        rows = app_db.execute(
+            """
+            SELECT doc_category, SUM(chunk_count) AS chunk_total
+            FROM ingested_files
+            GROUP BY doc_category
+            """
+        ).fetchall()
+    counts = {"total": 0, "regulation": 0, "enterprise": 0, "general": 0}
+    for row in rows:
+        category = row["doc_category"] or "general"
+        chunk_total = int(row["chunk_total"] or 0)
+        counts[category] = counts.get(category, 0) + chunk_total
+        counts["total"] += chunk_total
+    return counts
 
 
 def default_session_title(session_type: str) -> str:
@@ -1653,11 +1844,16 @@ def reset_app_state_database() -> None:
     set_config_value("bge_cache_dir", "")
     set_config_value("reranker_cache_dir", "")
     set_config_value("soffice_binary_path", DEFAULT_SOFFICE_BINARY_PATH)
+    set_config_value("qdrant_mode", DEFAULT_QDRANT_MODE)
+    set_config_value("qdrant_local_path", DEFAULT_QDRANT_LOCAL_PATH)
+    set_config_value("qdrant_url", DEFAULT_QDRANT_URL)
+    set_config_value("qdrant_api_key", DEFAULT_QDRANT_API_KEY)
     set_bool_config("replace_changed_same_name", True)
     set_bool_config("background_ingest", DEFAULT_BACKGROUND_INGEST)
     set_bool_config("ppt_visual_ocr", True)
     set_bool_config("skip_large_excel", False)
     set_config_value("excel_row_limit", 100000)
+    set_config_value("image_preprocess_mode", DEFAULT_IMAGE_PREPROCESS_MODE)
     set_config_value("image_preprocess_mode_label", DEFAULT_IMAGE_PREPROCESS_MODE_LABEL)
     set_bool_config("image_preprocess_custom", False)
     set_config_value("image_preprocess_max_side", IMAGE_PREPROCESS_PRESETS["balanced"]["max_side"])
@@ -1678,6 +1874,7 @@ def reset_app_state_database() -> None:
         "background_ingest_input",
         "skip_large_excel_input",
         "excel_row_limit_input",
+        "image_preprocess_mode",
         "image_preprocess_mode_label",
         "image_preprocess_custom",
         "image_preprocess_max_side",
@@ -1726,6 +1923,10 @@ def reset_app_state_database() -> None:
         "bge_cache_dir_input",
         "reranker_cache_dir_input",
         "soffice_binary_path_input",
+        "qdrant_mode_label",
+        "qdrant_local_path_input",
+        "qdrant_url_input",
+        "qdrant_api_key_input",
         "ui_language_selector",
         "model_status_test_llm_mode_label",
     ]:
@@ -2072,7 +2273,7 @@ def get_qdrant_singleton_state() -> Dict[str, Any]:
         state = {
             "client": None,
             "proxy": None,
-            "path": "",
+            "key": "",
             "lock": threading.RLock(),
         }
         setattr(builtins, "_ocr_rag_qdrant_state", state)
@@ -2090,7 +2291,7 @@ def close_qdrant_singleton() -> None:
                 pass
         state["client"] = None
         state["proxy"] = None
-        state["path"] = ""
+        state["key"] = ""
 
 
 def close_stale_qdrant_clients(qdrant_path: str) -> int:
@@ -2126,9 +2327,11 @@ def load_qdrant_client():
     from qdrant_client import QdrantClient
 
     state = get_qdrant_singleton_state()
-    qdrant_path = os.path.abspath(QDRANT_DIR)
+    qdrant_config = get_qdrant_config()
+    qdrant_key = get_qdrant_connection_key(qdrant_config)
+    qdrant_path = os.path.abspath(qdrant_config["local_path"])
     with state["lock"]:
-        if state.get("client") is not None and state.get("path") == qdrant_path:
+        if state.get("client") is not None and state.get("key") == qdrant_key:
             ensure_qdrant_collection(state["proxy"])
             return state["proxy"]
 
@@ -2140,12 +2343,20 @@ def load_qdrant_client():
                 pass
             state["client"] = None
             state["proxy"] = None
-            state["path"] = ""
+            state["key"] = ""
 
         try:
-            raw_client = QdrantClient(path=qdrant_path)
+            if qdrant_config["mode"] == "http":
+                raw_client = QdrantClient(
+                    url=qdrant_config["url"],
+                    api_key=qdrant_config["api_key"] or None,
+                    timeout=60,
+                )
+            else:
+                os.makedirs(qdrant_path, exist_ok=True)
+                raw_client = QdrantClient(path=qdrant_path)
         except RuntimeError as e:
-            if "already accessed by another instance of Qdrant client" in str(e):
+            if qdrant_config["mode"] == "local" and "already accessed by another instance of Qdrant client" in str(e):
                 if close_stale_qdrant_clients(qdrant_path):
                     try:
                         raw_client = QdrantClient(path=qdrant_path)
@@ -2170,9 +2381,21 @@ def load_qdrant_client():
         proxy = LockedQdrantClient(raw_client, state["lock"])
         state["client"] = raw_client
         state["proxy"] = proxy
-        state["path"] = qdrant_path
+        state["key"] = qdrant_key
         ensure_qdrant_collection(proxy)
         return proxy
+
+
+class LazyQdrantClient:
+    """Proxy Qdrant access so opening the app does not immediately load the vector store.
+    延迟代理 Qdrant 访问，避免打开页面时立即加载向量库。
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(load_qdrant_client(), name)
+
+    def close(self) -> None:
+        close_qdrant_singleton()
 
 
 @st.cache_resource
@@ -2180,7 +2403,7 @@ def load_llm_client(base_url: str, api_key: str):
     return OpenAI(base_url=base_url, api_key=api_key, timeout=60)
 
 
-vector_client = load_qdrant_client()
+vector_client = LazyQdrantClient()
 
 
 @st.cache_resource
@@ -2195,23 +2418,121 @@ def qdrant_scroll_points(
     where: Optional[Dict[str, Any]] = None,
     limit: int = 10000,
     with_payload: bool = True,
+    with_vectors: bool = False,
+    client: Optional[Any] = None,
 ) -> List[Any]:
     points = []
     next_page = None
     scroll_filter = build_qdrant_filter(where)
+    active_client = client or vector_client
     while True:
-        batch, next_page = vector_client.scroll(
+        batch, next_page = active_client.scroll(
             collection_name=COLLECTION_NAME,
             scroll_filter=scroll_filter,
             limit=min(limit, 256),
             offset=next_page,
             with_payload=with_payload,
-            with_vectors=False,
+            with_vectors=with_vectors,
         )
         points.extend(batch)
         if next_page is None or len(points) >= limit:
             break
     return points[:limit]
+
+
+def migrate_local_qdrant_to_http(
+    target_url: str,
+    target_api_key: str = "",
+    source_path: str = DEFAULT_QDRANT_LOCAL_PATH,
+    recreate_target: bool = False,
+    batch_size: int = 128,
+    progress_callback: Optional[Callable[[int], None]] = None,
+) -> int:
+    """Copy existing local Qdrant points to a remote/Docker Qdrant service.
+    将本地 Qdrant 已有 point 复制到远程或 Docker Qdrant 服务，不重新解析文档或重新生成向量。
+    """
+    from qdrant_client import QdrantClient
+
+    models = import_qdrant_models()
+    source_path = normalize_local_path(source_path, DEFAULT_QDRANT_LOCAL_PATH)
+    if not os.path.isdir(source_path):
+        raise FileNotFoundError(
+            localized_text(
+                f"Local Qdrant path does not exist: {source_path}",
+                f"本地 Qdrant 路径不存在：{source_path}",
+                f"本地 Qdrant 路徑不存在：{source_path}",
+            )
+        )
+
+    target_url = normalize_qdrant_url(target_url)
+    source_client = None
+    target_client = None
+    copied_count = 0
+    try:
+        active_config = get_qdrant_config()
+        if active_config["mode"] == "local" and os.path.abspath(active_config["local_path"]) == os.path.abspath(source_path):
+            source_client = load_qdrant_client()
+        else:
+            source_client = QdrantClient(path=source_path)
+
+        if not source_client.collection_exists(COLLECTION_NAME):
+            return 0
+
+        target_client = QdrantClient(url=target_url, api_key=(target_api_key or None), timeout=60)
+        if recreate_target:
+            try:
+                target_client.delete_collection(COLLECTION_NAME)
+            except Exception:
+                pass
+
+        if not target_client.collection_exists(COLLECTION_NAME):
+            target_client.create_collection(
+                collection_name=COLLECTION_NAME,
+                vectors_config=models.VectorParams(size=VECTOR_SIZE, distance=models.Distance.COSINE),
+            )
+
+        next_page = None
+        while True:
+            batch, next_page = source_client.scroll(
+                collection_name=COLLECTION_NAME,
+                limit=batch_size,
+                offset=next_page,
+                with_payload=True,
+                with_vectors=True,
+            )
+            points = []
+            for point in batch:
+                vector = getattr(point, "vector", None)
+                if vector is None:
+                    continue
+                points.append(
+                    models.PointStruct(
+                        id=point.id,
+                        vector=vector,
+                        payload=getattr(point, "payload", None) or {},
+                    )
+                )
+            if points:
+                target_client.upsert(collection_name=COLLECTION_NAME, points=points)
+                copied_count += len(points)
+                if progress_callback:
+                    progress_callback(copied_count)
+            del points, batch
+            if next_page is None:
+                break
+        return copied_count
+    finally:
+        if target_client is not None:
+            try:
+                target_client.close()
+            except Exception:
+                pass
+        if source_client is not None and source_client is not vector_client and source_client is not get_qdrant_singleton_state().get("proxy"):
+            try:
+                source_client.close()
+            except Exception:
+                pass
+        release_memory_after_file()
 
 
 def point_payload(point: Any) -> Dict[str, Any]:
@@ -2398,7 +2719,8 @@ from .document_parsing import *  # noqa: F401,F403
 from .rag_pipeline import *  # noqa: F401,F403
 
 
-def get_file_summary_rows() -> List[Dict[str, Any]]:
+@st.cache_data(ttl=10, show_spinner=False)
+def get_file_summary_rows(language_code: str = "") -> List[Dict[str, Any]]:
     points = qdrant_scroll_points(limit=100000)
     rows_by_key = {}
     for point in points:
@@ -2463,15 +2785,16 @@ def create_vector_library_backup() -> bytes:
             raise
 
     output = io.BytesIO()
+    source_qdrant_dir = get_qdrant_config()["local_path"]
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
-        if os.path.isdir(QDRANT_DIR):
+        if os.path.isdir(source_qdrant_dir):
             state = get_qdrant_singleton_state()
             with state["lock"]:
-                for root, dirs, files in os.walk(QDRANT_DIR):
+                for root, dirs, files in os.walk(source_qdrant_dir):
                     dirs[:] = [name for name in dirs if name != "__MACOSX"]
                     for file_name in files:
                         file_path = os.path.join(root, file_name)
-                        archive_name = os.path.relpath(file_path, ".")
+                        archive_name = os.path.join(QDRANT_DIR, os.path.relpath(file_path, source_qdrant_dir))
                         write_backup_file(archive, file_path, archive_name)
     return output.getvalue()
 
@@ -2524,10 +2847,11 @@ def restore_vector_library_backup(uploaded_backup) -> str:
         except Exception:
             pass
         restored_qdrant_dir = os.path.join(restore_dir, QDRANT_DIR)
+        target_qdrant_dir = get_qdrant_config()["local_path"]
         if has_qdrant and os.path.isdir(restored_qdrant_dir):
-            if os.path.isdir(QDRANT_DIR):
-                shutil.rmtree(QDRANT_DIR)
-            shutil.copytree(restored_qdrant_dir, QDRANT_DIR)
+            if os.path.isdir(target_qdrant_dir):
+                shutil.rmtree(target_qdrant_dir)
+            shutil.copytree(restored_qdrant_dir, target_qdrant_dir)
         return localized_text(
             "Backup imported. Restart Streamlit to ensure Qdrant reloads cleanly.",
             "备份已导入。建议重启 Streamlit，确保 Qdrant 重新加载。",

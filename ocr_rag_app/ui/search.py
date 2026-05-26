@@ -185,7 +185,11 @@ def render_search_tab() -> None:
     with st.form("rag_chat_form", clear_on_submit=True):
         question = st.text_area(
             "输入问题",
-            placeholder="输入问题，点击发送",
+            placeholder=localized_text(
+                "Type your question, then click Send",
+                "输入问题，点击发送",
+                "輸入問題，點擊發送",
+            ),
             height=88,
             key="rag_chat_text",
         )

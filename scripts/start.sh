@@ -8,6 +8,124 @@ source "$SCRIPT_DIR/common.sh"
 UPDATE_GITHUB_URL="${DOC_RAG_UPDATE_GITHUB_URL:-https://raw.githubusercontent.com/agenius666/Ocr_Rag_UI/main/update/latest.json}"
 UPDATE_GITEE_URL="${DOC_RAG_UPDATE_GITEE_URL:-https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/update/latest.json}"
 APP_URL="http://127.0.0.1:8501"
+THEME_FILE="$ROOT_DIR/.launcher_theme"
+STREAMLIT_CONFIG_FILE="$ROOT_DIR/.streamlit/config.toml"
+
+normalize_theme() {
+  case "${1:-}" in
+    light|Light|LIGHT|浅色|淺色) printf 'light\n' ;;
+    dark|Dark|DARK|深色) printf 'dark\n' ;;
+    *) return 1 ;;
+  esac
+}
+
+current_theme() {
+  local saved_theme=""
+  if [ -f "$THEME_FILE" ] && normalize_theme "$(cat "$THEME_FILE")" >/dev/null 2>&1; then
+    normalize_theme "$(cat "$THEME_FILE")"
+    return
+  fi
+
+  if [ -f "$STREAMLIT_CONFIG_FILE" ]; then
+    saved_theme="$(sed -n 's/^[[:space:]]*base[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$STREAMLIT_CONFIG_FILE" | tail -n 1)"
+    if normalize_theme "$saved_theme" >/dev/null 2>&1; then
+      normalize_theme "$saved_theme"
+      return
+    fi
+  fi
+
+  printf 'light\n'
+}
+
+theme_label() {
+  case "$(current_theme)" in
+    dark) msg "Dark" "深色" "深色" ;;
+    *) msg "Light" "浅色" "淺色" ;;
+  esac
+}
+
+write_streamlit_theme() {
+  local theme="$1"
+  local py_cmd
+  mkdir -p "$(dirname "$STREAMLIT_CONFIG_FILE")"
+  py_cmd="$(script_python)" || return 1
+  "$py_cmd" - "$STREAMLIT_CONFIG_FILE" "$theme" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+theme = sys.argv[2]
+text = path.read_text(encoding="utf-8") if path.exists() else ""
+lines = text.splitlines()
+out = []
+in_theme = False
+theme_found = False
+base_written = False
+
+for line in lines:
+    stripped = line.strip()
+    if stripped.startswith("[") and stripped.endswith("]"):
+        if in_theme and not base_written:
+            out.append(f'base = "{theme}"')
+            base_written = True
+        in_theme = stripped == "[theme]"
+        theme_found = theme_found or in_theme
+        out.append(line)
+        continue
+    if in_theme and stripped.startswith("base"):
+        out.append(f'base = "{theme}"')
+        base_written = True
+        continue
+    out.append(line)
+
+if not theme_found:
+    if out and out[-1].strip():
+        out.append("")
+    out.extend(["[theme]", f'base = "{theme}"'])
+elif in_theme and not base_written:
+    out.append(f'base = "{theme}"')
+
+path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+PY
+}
+
+apply_saved_theme() {
+  local theme
+  theme="$(current_theme)"
+  printf '%s\n' "$theme" > "$THEME_FILE"
+  if ! write_streamlit_theme "$theme"; then
+    say \
+      "Theme config could not be written. The app will continue with the existing Streamlit theme." \
+      "无法写入主题配置，将继续使用现有 Streamlit 主题。" \
+      "無法寫入主題配置，將繼續使用現有 Streamlit 主題。"
+  fi
+}
+
+theme_menu() {
+  local choice
+  local theme
+  while true; do
+    printf '\n==== %s ====\n' "$(msg 'Theme Settings' '主题设置' '主題設定')"
+    printf '%s%s\n' "$(msg 'Current theme: ' '当前主题：' '目前主題：')" "$(theme_label)"
+    printf '1. %s\n' "$(msg 'Light' '浅色' '淺色')"
+    printf '2. %s\n' "$(msg 'Dark' '深色' '深色')"
+    printf '3. %s\n' "$(msg 'Return' '返回' '返回')"
+    printf '%s' "$(msg 'Choose [1-3]: ' '请选择 [1-3]：' '請選擇 [1-3]：')"
+    read -r choice
+    case "$choice" in
+      1) theme="light" ;;
+      2) theme="dark" ;;
+      3) return 0 ;;
+      *) say "Invalid choice." "无效选择。" "無效選擇。"; continue ;;
+    esac
+    printf '%s\n' "$theme" > "$THEME_FILE"
+    write_streamlit_theme "$theme"
+    say \
+      "Theme saved. Restart the app to apply it if Streamlit is already running." \
+      "主题已保存。如果 Streamlit 已在运行，请重启程序后生效。" \
+      "主題已儲存。如果 Streamlit 已在執行，請重新啟動程式後生效。"
+  done
+}
 
 version_gt() {
   local left="$1"
@@ -141,6 +259,7 @@ open_browser_after_ready() {
 start_app() {
   local streamlit_cmd
   cd "$ROOT_DIR"
+  apply_saved_theme
   streamlit_cmd="$(streamlit_bin)" || {
     say \
       "Virtual environment or Streamlit was not found. Choose \"Install / Repair Dependencies\" first." \
@@ -166,9 +285,10 @@ menu() {
     printf '3. %s\n' "$(msg 'Update Source' '更新源码' '更新原始碼')"
     printf '4. %s\n' "$(msg 'Install / Repair Dependencies' '安装/修复依赖' '安裝/修復依賴')"
     printf '5. %s\n' "$(msg 'Show Current Version' '查看当前版本' '查看目前版本')"
-    printf '6. %s\n' "$(msg 'Uninstall / Clean' '卸载/清理' '卸載/清理')"
-    printf '7. %s\n' "$(msg 'Exit' '退出' '退出')"
-    printf '%s' "$(msg 'Choose [1-7]: ' '请选择 [1-7]：' '請選擇 [1-7]：')"
+    printf '6. %s (%s)\n' "$(msg 'Theme Settings' '主题设置' '主題設定')" "$(theme_label)"
+    printf '7. %s\n' "$(msg 'Uninstall / Clean' '卸载/清理' '卸載/清理')"
+    printf '8. %s\n' "$(msg 'Exit' '退出' '退出')"
+    printf '%s' "$(msg 'Choose [1-8]: ' '请选择 [1-8]：' '請選擇 [1-8]：')"
     read -r choice
     case "$choice" in
       1) start_app ;;
@@ -176,8 +296,9 @@ menu() {
       3) bash "$SCRIPT_DIR/update.sh" ;;
       4) bash "$SCRIPT_DIR/install.sh" ;;
       5) show_version ;;
-      6) bash "$SCRIPT_DIR/uninstall.sh" ;;
-      7) exit 0 ;;
+      6) theme_menu ;;
+      7) bash "$SCRIPT_DIR/uninstall.sh" ;;
+      8) exit 0 ;;
       *) say "Invalid choice." "无效选择。" "無效選擇。" ;;
     esac
   done

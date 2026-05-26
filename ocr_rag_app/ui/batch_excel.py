@@ -7,7 +7,7 @@ from copy import copy
 from openpyxl.utils import get_column_letter
 
 from ..services import *
-from .components import render_search_results
+from .components import render_prompt_editor, render_search_results
 
 
 def default_batch_output_mappings() -> List[Dict[str, Any]]:
@@ -19,7 +19,6 @@ def default_batch_output_mappings() -> List[Dict[str, Any]]:
                 "供应商制度要求",
                 "供應商制度要求",
             ),
-            "max_chars": 150,
         },
     ]
 
@@ -78,7 +77,6 @@ def load_batch_output_mappings() -> List[Dict[str, Any]]:
                     {
                         "column": normalize_excel_column(item.get("column", "D")),
                         "description": str(item.get("description", "") or "").strip(),
-                        "max_chars": max(1, int(item.get("max_chars", 150) or 150)),
                     }
                     for item in mappings
                     if isinstance(item, dict)
@@ -151,12 +149,7 @@ def build_json_template(mappings: List[Dict[str, Any]]) -> Dict[str, str]:
     for item in mappings:
         column = normalize_excel_column(item.get("column", ""))
         description = str(item.get("description", "") or column).strip()
-        max_chars = max(1, int(item.get("max_chars", 150) or 150))
-        template["{" + column + "}"] = localized_text(
-            f"{description} (no more than {max_chars} characters)",
-            f"{description}（不超过{max_chars}字）",
-            f"{description}（不超過{max_chars}字）",
-        )
+        template["{" + column + "}"] = description
     return template
 
 
@@ -178,12 +171,6 @@ def extract_json_object(raw_text: str) -> Dict[str, Any]:
         return payload if isinstance(payload, dict) else {}
     except Exception:
         return {}
-
-
-def truncate_output_text(value: Any, max_chars: int) -> str:
-    text = cell_to_text(value)
-    max_chars = max(1, int(max_chars or 1))
-    return text[:max_chars]
 
 
 def copy_style_if_possible(source_cell, target_cell) -> None:
@@ -253,10 +240,6 @@ def collect_batch_output_mappings_from_widgets(
                     st.session_state.get(f"batch_output_description_{revision}_{index}", item.get("description", ""))
                     or ""
                 ).strip(),
-                "max_chars": max(
-                    1,
-                    int(st.session_state.get(f"batch_output_max_chars_{revision}_{index}", item.get("max_chars", 150)) or 150),
-                ),
             }
         )
     return mappings
@@ -284,7 +267,6 @@ def add_batch_output_mapping(current_mappings: List[Dict[str, Any]], revision: i
         {
             "column": "D",
             "description": localized_text("Output field", "输出字段", "輸出欄位"),
-            "max_chars": 150,
         }
     )
     st.session_state["batch_output_mappings"] = updated_mappings
@@ -300,16 +282,16 @@ def render_batch_output_mapping_editor(column_options: List[str], worksheet, hea
     st.markdown(localized_text("#### Excel Writeback Configuration", "#### Excel 回写配置", "#### Excel 回寫配置"))
     st.caption(
         localized_text(
-            "Choose output columns, describe what each column should contain, and set the maximum length for each answer.",
-            "选择输出列，填写每列要生成的内容说明，并设置每个答案的最大字数。",
-            "選擇輸出欄，填寫每欄要生成的內容說明，並設定每個答案的最大字數。",
+            "Choose output columns and describe what each column should contain. Length requirements can be written directly in the description.",
+            "选择输出列，并填写每列要生成的内容说明；字数限制可直接写在输出说明里。",
+            "選擇輸出欄，並填寫每欄要生成的內容說明；字數限制可直接寫在輸出說明裡。",
         )
     )
 
     current_mappings = st.session_state["batch_output_mappings"]
     normalized_mappings = []
     for index, item in enumerate(list(current_mappings)):
-        row_cols = st.columns([1.1, 2.5, 1.2, 0.4])
+        row_cols = st.columns([1.1, 3.2, 0.4])
         current_column = normalize_excel_column(item.get("column", "D"))
         if current_column not in column_options:
             column_options.append(current_column)
@@ -332,6 +314,11 @@ def render_batch_output_mapping_editor(column_options: List[str], worksheet, hea
                 localized_text("Output Description", "输出说明", "輸出說明"),
                 value=str(item.get("description", "") or ""),
                 key=f"batch_output_description_{revision}_{index}",
+                placeholder=localized_text(
+                    "Example: supplier policy requirement; no more than 150 words",
+                    "例如：供应商制度要求；不超过150字",
+                    "例如：供應商制度要求；不超過150字",
+                ),
                 help=localized_text(
                     "This becomes the instruction for the corresponding JSON field.",
                     "这会作为对应 JSON 字段的生成要求。",
@@ -339,20 +326,6 @@ def render_batch_output_mapping_editor(column_options: List[str], worksheet, hea
                 ),
             )
         with row_cols[2]:
-            max_chars = st.number_input(
-                localized_text("Max Characters", "最大字数", "最大字數"),
-                min_value=1,
-                max_value=5000,
-                value=max(1, int(item.get("max_chars", 150) or 150)),
-                step=10,
-                key=f"batch_output_max_chars_{revision}_{index}",
-                help=localized_text(
-                    "The app truncates the value before writing it back if the model exceeds this limit.",
-                    "如果模型输出超过该长度，写回前会自动截断。",
-                    "如果模型輸出超過該長度，寫回前會自動截斷。",
-                ),
-            )
-        with row_cols[3]:
             st.write("")
             st.button(
                 "-",
@@ -366,7 +339,6 @@ def render_batch_output_mapping_editor(column_options: List[str], worksheet, hea
             {
                 "column": normalize_excel_column(output_column),
                 "description": description.strip(),
-                "max_chars": int(max_chars),
             }
         )
 
@@ -475,14 +447,19 @@ def render_batch_excel_tab() -> None:
         ),
     )
     prompt_template = st.text_area(
-        localized_text("Custom Prompt", "用户自定义 Prompt", "使用者自訂 Prompt"),
+        localized_text("Row Prompt Template", "行级 Prompt 模板", "列級 Prompt 模板"),
         value=default_prompt,
         height=120,
         key="batch_prompt_template_input",
+        placeholder=localized_text(
+            "Example: Analyze supplier {B} against compliance requirement {C}, using the enterprise materials.",
+            "例如：请根据供应商【{B}】的合规要求【{C}】，结合企业资料进行分析。",
+            "例如：請根據供應商【{B}】的合規要求【{C}】，結合企業資料進行分析。",
+        ),
         help=localized_text(
-            "Use placeholders such as {A}, {B}, {C}, or header names. They are replaced with the current row values before each LLM call.",
-            "可以使用 {A}、{B}、{C} 或表头名作为占位符；每行调用模型前会替换成该行实际单元格内容。",
-            "可以使用 {A}、{B}、{C} 或表頭名作為佔位符；每列調用模型前會替換成該列實際儲存格內容。",
+            "Write the reusable row-level task template. Placeholders such as {A}, {B}, {C}, or header names are replaced with current row values, and the final text becomes {row_prompt}.",
+            "填写可复用的行级任务模板。{A}、{B}、{C} 或表头名会在每行调用前替换成该行实际单元格内容，替换后的最终文本就是 {row_prompt}。",
+            "填寫可複用的列級任務模板。{A}、{B}、{C} 或表頭名會在每列調用前替換成該列實際儲存格內容，替換後的最終文字就是 {row_prompt}。",
         ),
     )
     set_config_value("batch_prompt_template", prompt_template)
@@ -501,11 +478,66 @@ def render_batch_excel_tab() -> None:
         )
 
     preview_payload = {
-        "prompt_template": prompt_template,
+        "row_prompt_template": prompt_template,
         "json_template": json_template,
     }
     with st.expander(localized_text("Preview Prompt And JSON Template", "查看 Prompt 与 JSON 模板", "查看 Prompt 與 JSON 模板"), expanded=False):
         st.code(json.dumps(preview_payload, ensure_ascii=False, indent=2), language="json")
+
+    placeholder_col = localized_text("Placeholder", "占位符", "佔位符")
+    meaning_col = localized_text("Meaning", "含义", "含義")
+    render_prompt_editor(
+        "batch",
+        default_batch_system_prompt_template(),
+        default_batch_user_prompt_template(),
+        localized_text(
+            "Available placeholders: {row_prompt}, {context}, {json_template}, {json_template_text}, {language_instruction}",
+            "可用占位符：{row_prompt}、{context}、{json_template}、{json_template_text}、{language_instruction}",
+            "可用佔位符：{row_prompt}、{context}、{json_template}、{json_template_text}、{language_instruction}",
+        ),
+        [
+            {
+                placeholder_col: "{row_prompt}",
+                meaning_col: localized_text(
+                    "The final row prompt generated from the Row Prompt Template after replacing the current row's Excel placeholders.",
+                    "由“行级 Prompt 模板”替换当前行 Excel 占位符后生成的最终行任务提示。",
+                    "由「列級 Prompt 模板」替換當前列 Excel 佔位符後生成的最終列任務提示。",
+                ),
+            },
+            {
+                placeholder_col: "{context}",
+                meaning_col: localized_text(
+                    "Retrieved materials for the current row.",
+                    "当前行召回并拼接后的检索资料。",
+                    "當前列召回並拼接後的檢索資料。",
+                ),
+            },
+            {
+                placeholder_col: "{json_template}",
+                meaning_col: localized_text(
+                    "The JSON object schema generated from the writeback configuration.",
+                    "根据 Excel 回写配置生成的 JSON 对象结构。",
+                    "根據 Excel 回寫配置生成的 JSON 物件結構。",
+                ),
+            },
+            {
+                placeholder_col: "{json_template_text}",
+                meaning_col: localized_text(
+                    "Alias of {json_template}, kept for compatibility.",
+                    "{json_template} 的兼容别名。",
+                    "{json_template} 的相容別名。",
+                ),
+            },
+            {
+                placeholder_col: "{language_instruction}",
+                meaning_col: localized_text(
+                    "Output language instruction based on the current UI language.",
+                    "根据当前界面语言生成的输出语言要求。",
+                    "根據當前介面語言生成的輸出語言要求。",
+                ),
+            },
+        ],
+    )
 
     with st.expander(localized_text("Batch Processing And Retrieval Settings", "批量处理与检索设置", "批次處理與檢索設定"), expanded=False):
         row_col, skip_col, mode_col, scope_col = st.columns([1.2, 1.2, 1, 1])
@@ -813,7 +845,7 @@ def render_batch_excel_tab() -> None:
                         row_number,
                         int(header_row),
                     )
-                    target_cell.value = truncate_output_text(value, int(mapping["max_chars"]))
+                    target_cell.value = cell_to_text(value)
 
                 success_count += 1
                 result_rows.append(

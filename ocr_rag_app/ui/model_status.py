@@ -9,6 +9,7 @@ from .components import *
 def render_model_status_tab() -> None:
     st.subheader("模型状态 / 下载查询")
     llm_config = get_llm_config()
+    qdrant_config = get_qdrant_config()
     active_ocr_config = get_paddleocr_model_config()
     soffice_binary = find_soffice_binary()
     libreoffice_plan = get_libreoffice_install_plan()
@@ -45,6 +46,20 @@ def render_model_status_tab() -> None:
             localized_text("Purpose", "用途", "用途"): localized_text("DOC/PPT/XLS legacy Office file conversion", "DOC/PPT/XLS 老版 Office 文件转换", "DOC/PPT/XLS 舊版 Office 文件轉換"),
         },
         {
+            localized_text("Component", "组件", "組件"): "Qdrant",
+            localized_text("Status", "状态", "狀態"): (
+                localized_text("Mode: ", "模式：", "模式：")
+                + qdrant_config["mode"]
+                + "; "
+                + (
+                    localized_text("URL: ", "地址：", "地址：") + qdrant_config["url"]
+                    if qdrant_config["mode"] == "http"
+                    else localized_text("Path: ", "路径：", "路徑：") + qdrant_config["local_path"]
+                )
+            ),
+            localized_text("Purpose", "用途", "用途"): localized_text("Vector storage and retrieval", "向量存储和检索", "向量儲存和檢索"),
+        },
+        {
             localized_text("Component", "组件", "組件"): localized_text(
                 f"Local LLM endpoint: {llm_config['model']}",
                 f"本地大模型接口：{llm_config['model']}",
@@ -69,13 +84,6 @@ def render_model_status_tab() -> None:
 
     with st.container(border=True):
         st.markdown("#### 内存管理")
-        st.caption(
-            localized_text(
-                "Release local model caches after processing large files. OCR, embedding, or reranking will reload models next time.",
-                "处理大文件后可释放本地模型缓存；下次 OCR、向量化或重排会重新加载模型。",
-                "處理大文件後可釋放本地模型快取；下次 OCR、向量化或重排會重新載入模型。",
-            )
-        )
         if st.button("释放 OCR / BGE-M3 / Reranker 模型缓存", key="clear_model_cache"):
             try:
                 load_ocr_model.clear()
@@ -91,6 +99,16 @@ def render_model_status_tab() -> None:
             except Exception as e:
                 record_model_event(localized_text("Model Cache", "模型缓存", "模型快取"), localized_text("Failed", "失败", "失敗"), str(e))
                 st.error(localized_text(f"Failed to release model caches: {e}", f"释放模型缓存失败：{e}", f"釋放模型快取失敗：{e}"))
+        if st.button(localized_text("Close Qdrant Client Cache", "关闭 Qdrant 客户端缓存", "關閉 Qdrant 客戶端快取"), key="close_qdrant_client_cache"):
+            try:
+                close_qdrant_singleton()
+                load_qdrant_client.clear()
+                release_memory_after_file()
+                record_model_event("Qdrant", localized_text("Completed", "完成", "完成"), localized_text("Qdrant client cache closed", "Qdrant 客户端缓存已关闭", "Qdrant 客戶端快取已關閉"))
+                st.success(localized_text("Qdrant client cache closed.", "Qdrant 客户端缓存已关闭。", "Qdrant 客戶端快取已關閉。"))
+            except Exception as e:
+                record_model_event("Qdrant", localized_text("Failed", "失败", "失敗"), str(e))
+                st.error(localized_text(f"Failed to close Qdrant client cache: {e}", f"关闭 Qdrant 客户端缓存失败：{e}", f"關閉 Qdrant 客戶端快取失敗：{e}"))
 
     with st.container(border=True):
         st.markdown("#### PaddleOCR")
@@ -126,13 +144,6 @@ def render_model_status_tab() -> None:
 
     with st.container(border=True):
         st.markdown("#### BGE Reranker")
-        st.caption(
-            localized_text(
-                "Used only when reranking is enabled in retrieval settings. The first load may download the model and use extra memory.",
-                "仅在检索设置里启用重排模型时才会使用；首次加载可能下载模型并占用额外内存。",
-                "僅在檢索設定裡啟用重排模型時才會使用；首次載入可能下載模型並佔用額外記憶體。",
-            )
-        )
         if st.button("预加载 Reranker", key="preload_reranker"):
             try:
                 with st.status("正在加载 Reranker...", expanded=True) as status:

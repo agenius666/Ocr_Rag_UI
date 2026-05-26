@@ -6,6 +6,8 @@ $ErrorActionPreference = "Continue"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RootDir = Split-Path -Parent $ScriptDir
 $LanguageFile = Join-Path $RootDir ".launcher_lang"
+$ThemeFile = Join-Path $RootDir ".launcher_theme"
+$StreamlitConfigFile = Join-Path $RootDir ".streamlit\config.toml"
 $AppUrl = "http://127.0.0.1:8501"
 $UpdateGitHubUrl = if ($env:DOC_RAG_UPDATE_GITHUB_URL) { $env:DOC_RAG_UPDATE_GITHUB_URL } else { "https://raw.githubusercontent.com/agenius666/Ocr_Rag_UI/main/update/latest.json" }
 $UpdateGiteeUrl = if ($env:DOC_RAG_UPDATE_GITEE_URL) { $env:DOC_RAG_UPDATE_GITEE_URL } else { "https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/update/latest.json" }
@@ -69,6 +71,131 @@ function Read-MenuChoice {
         return $DefaultWhenRedirected
     }
     return $choice
+}
+
+function Normalize-Theme {
+    param([string]$Value)
+    $Value = "$Value".Trim()
+    switch -Regex ($Value) {
+        "^(light|Light|LIGHT|浅色|淺色)$" { return "light" }
+        "^(dark|Dark|DARK|深色)$" { return "dark" }
+        default { return "" }
+    }
+}
+
+function Get-CurrentTheme {
+    if (Test-Path $ThemeFile) {
+        $candidate = Normalize-Theme (Get-Content $ThemeFile -Raw)
+        if ($candidate) {
+            return $candidate
+        }
+    }
+
+    if (Test-Path $StreamlitConfigFile) {
+        foreach ($line in Get-Content $StreamlitConfigFile) {
+            if ($line -match '^\s*base\s*=\s*"([^"]+)"') {
+                $candidate = Normalize-Theme $Matches[1]
+                if ($candidate) {
+                    return $candidate
+                }
+            }
+        }
+    }
+
+    return "light"
+}
+
+function Get-ThemeLabel {
+    if ((Get-CurrentTheme) -eq "dark") {
+        return (Msg "Dark" "深色" "深色")
+    }
+    return (Msg "Light" "浅色" "淺色")
+}
+
+function Set-StreamlitTheme {
+    param([string]$Theme)
+    $configDir = Split-Path -Parent $StreamlitConfigFile
+    if (-not (Test-Path $configDir)) {
+        New-Item -ItemType Directory -Path $configDir -Force | Out-Null
+    }
+
+    $lines = @()
+    if (Test-Path $StreamlitConfigFile) {
+        $lines = @(Get-Content $StreamlitConfigFile)
+    }
+
+    $out = New-Object System.Collections.Generic.List[string]
+    $inTheme = $false
+    $themeFound = $false
+    $baseWritten = $false
+
+    foreach ($line in $lines) {
+        $stripped = $line.Trim()
+        if ($stripped.StartsWith("[") -and $stripped.EndsWith("]")) {
+            if ($inTheme -and -not $baseWritten) {
+                $out.Add("base = `"$Theme`"")
+                $baseWritten = $true
+            }
+            $inTheme = ($stripped -eq "[theme]")
+            if ($inTheme) {
+                $themeFound = $true
+            }
+            $out.Add($line)
+            continue
+        }
+        if ($inTheme -and $stripped.StartsWith("base")) {
+            $out.Add("base = `"$Theme`"")
+            $baseWritten = $true
+            continue
+        }
+        $out.Add($line)
+    }
+
+    if (-not $themeFound) {
+        if ($out.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace($out[$out.Count - 1])) {
+            $out.Add("")
+        }
+        $out.Add("[theme]")
+        $out.Add("base = `"$Theme`"")
+    } elseif ($inTheme -and -not $baseWritten) {
+        $out.Add("base = `"$Theme`"")
+    }
+
+    Set-Content -Path $StreamlitConfigFile -Value $out -Encoding UTF8
+}
+
+function Apply-SavedTheme {
+    $theme = Get-CurrentTheme
+    Set-Content -Path $ThemeFile -Value $theme -Encoding UTF8
+    try {
+        Set-StreamlitTheme $theme
+    } catch {
+        Say "Theme config could not be written. The app will continue with the existing Streamlit theme." "无法写入主题配置，将继续使用现有 Streamlit 主题。" "無法寫入主題配置，將繼續使用現有 Streamlit 主題。"
+    }
+}
+
+function Theme-Menu {
+    while ($true) {
+        Write-Host ""
+        Write-Host "==== $(Msg 'Theme Settings' '主题设置' '主題設定') ===="
+        Write-Host "$(Msg 'Current theme: ' '当前主题：' '目前主題：')$(Get-ThemeLabel)"
+        Write-Host "1. $(Msg 'Light' '浅色' '淺色')"
+        Write-Host "2. $(Msg 'Dark' '深色' '深色')"
+        Write-Host "3. $(Msg 'Return' '返回' '返回')"
+        $choice = Read-MenuChoice (Msg "Choose [1-3]" "请选择 [1-3]" "請選擇 [1-3]") "3"
+        switch ($choice) {
+            "1" { $theme = "light" }
+            "2" { $theme = "dark" }
+            "3" { return }
+            default {
+                Say "Invalid choice." "无效选择。" "無效選擇。"
+                continue
+            }
+        }
+        Set-Content -Path $ThemeFile -Value $theme -Encoding UTF8
+        Set-StreamlitTheme $theme
+        Say "Theme saved. Restart the app to apply it if Streamlit is already running." "主题已保存。如果 Streamlit 已在运行，请重启程序后生效。" "主題已儲存。如果 Streamlit 已在執行，請重新啟動程式後生效。"
+    }
 }
 
 function Current-Version {
@@ -211,6 +338,7 @@ function Update-Source {
 
 function Start-App {
     Set-Location $RootDir
+    Apply-SavedTheme
     $streamlit = Join-Path $RootDir ".venv\Scripts\streamlit.exe"
     if (-not (Test-Path $streamlit)) {
         Say "Virtual environment or Streamlit was not found. Choose `"Install / Repair Dependencies`" first." "未找到虚拟环境或 Streamlit，请先选择“安装/修复依赖”。" "未找到虛擬環境或 Streamlit，請先選擇「安裝/修復依賴」。"
@@ -269,17 +397,19 @@ function Main-Menu {
         Write-Host "3. $(Msg 'Update Source' '更新源码' '更新原始碼')"
         Write-Host "4. $(Msg 'Install / Repair Dependencies' '安装/修复依赖' '安裝/修復依賴')"
         Write-Host "5. $(Msg 'Show Current Version' '查看当前版本' '查看目前版本')"
-        Write-Host "6. $(Msg 'Uninstall / Clean' '卸载/清理' '卸載/清理')"
-        Write-Host "7. $(Msg 'Exit' '退出' '退出')"
-        $choice = Read-MenuChoice (Msg "Choose [1-7]" "请选择 [1-7]" "請選擇 [1-7]") "7"
+        Write-Host "6. $(Msg 'Theme Settings' '主题设置' '主題設定') ($(Get-ThemeLabel))"
+        Write-Host "7. $(Msg 'Uninstall / Clean' '卸载/清理' '卸載/清理')"
+        Write-Host "8. $(Msg 'Exit' '退出' '退出')"
+        $choice = Read-MenuChoice (Msg "Choose [1-8]" "请选择 [1-8]" "請選擇 [1-8]") "8"
         switch ($choice) {
             "1" { Start-App }
             "2" { Check-Update "manual" }
             "3" { Update-Source }
             "4" { Install-Dependencies }
             "5" { Show-Version }
-            "6" { Cleanup-Menu }
-            "7" { return }
+            "6" { Theme-Menu }
+            "7" { Cleanup-Menu }
+            "8" { return }
             default { Say "Invalid choice." "无效选择。" "無效選擇。" }
         }
     }

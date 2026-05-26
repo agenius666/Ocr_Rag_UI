@@ -188,12 +188,22 @@ def render_prompt_editor(
             system_prompt = st.text_area(
                 localized_text("System Prompt", "系统提示词", "系統提示詞"),
                 value=get_config_value(system_key, "").strip() or system_default,
+                placeholder=localized_text(
+                    "Leave empty to use the built-in system guidance",
+                    "留空则使用内置系统引导",
+                    "留空則使用內建系統引導",
+                ),
                 height=220,
                 key=f"{config_prefix}_system_prompt_input",
             )
             user_prompt_template = st.text_area(
                 localized_text("User Prompt Template", "用户提示词模板", "使用者提示詞模板"),
                 value=get_config_value(user_key, "").strip() or user_default,
+                placeholder=localized_text(
+                    "Leave empty to use the built-in user prompt template",
+                    "留空则使用内置用户提示词模板",
+                    "留空則使用內建使用者提示詞模板",
+                ),
                 height=220,
                 key=f"{config_prefix}_user_prompt_template_input",
             )
@@ -341,17 +351,22 @@ def render_compliance_chat_panel(messages: List[Dict[str, Any]], panel_key: Opti
                                 st.info(localized_text("No enterprise evidence", "无企业证据", "無企業證據"))
 
 
+@st.cache_data(ttl=5, show_spinner=False)
+def get_cached_library_counts() -> Dict[str, int]:
+    """Read library counts from SQLite ingestion records.
+    从 SQLite 入库记录读取统计，降低 Streamlit 重跑和 Qdrant Local 负载。
+    """
+    return get_ingested_file_chunk_counts()
+
+
 def render_library_summary() -> None:
-    total_count = count_chunks()
-    regulation_count = count_chunks("regulation")
-    enterprise_count = count_chunks("enterprise")
-    general_count = count_chunks("general")
+    counts = get_cached_library_counts()
 
     col_total, col_reg, col_ent, col_general = st.columns(4)
-    col_total.metric(localized_text("Total Chunks", "总 chunk", "總 chunk"), total_count)
-    col_reg.metric(source_label("regulations"), regulation_count)
-    col_ent.metric(source_label("enterprise"), enterprise_count)
-    col_general.metric(localized_text("Other Materials", "其他资料", "其他資料"), general_count)
+    col_total.metric(localized_text("Total Chunks", "总 chunk", "總 chunk"), counts["total"])
+    col_reg.metric(source_label("regulations"), counts["regulation"])
+    col_ent.metric(source_label("enterprise"), counts["enterprise"])
+    col_general.metric(localized_text("Other Materials", "其他资料", "其他資料"), counts["general"])
 
 
 def render_result_dataframe(rows: List[Dict[str, Any]], max_rows: int = 200) -> None:

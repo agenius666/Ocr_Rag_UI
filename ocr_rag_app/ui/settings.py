@@ -12,8 +12,14 @@ def render_settings_tab() -> None:
     if reset_notice:
         st.success(reset_notice)
 
-    config_language_tab, config_model_tab, config_llm_tab, config_reset_tab = st.tabs(
-        ["语言设置", "模型与路径", "本地大模型", "初始化"]
+    config_language_tab, config_model_tab, config_qdrant_tab, config_llm_tab, config_reset_tab = st.tabs(
+        [
+            localized_text("Language", "语言设置", "語言設定"),
+            localized_text("Models And Paths", "模型与路径", "模型與路徑"),
+            localized_text("Vector Store", "向量库连接", "向量庫連線"),
+            localized_text("Local LLM", "本地大模型", "本地大模型"),
+            localized_text("Reset", "初始化", "初始化"),
+        ]
     )
 
     with config_language_tab:
@@ -81,7 +87,12 @@ def render_settings_tab() -> None:
                         "默认模型根目录",
                         value=get_model_cache_root(),
                         key="model_cache_root_input",
-                        help="未单独指定模型路径时，会在该目录下创建各模型缓存目录。",
+                        placeholder=DEFAULT_MODEL_CACHE_ROOT,
+                        help=localized_text(
+                            "When a model-specific path is empty, model cache folders are created under this root.",
+                            "未单独指定模型路径时，会在该目录下创建各模型缓存目录。",
+                            "未單獨指定模型路徑時，會在該目錄下建立各模型快取目錄。",
+                        ),
                     )
                     default_root_for_form = normalize_local_path(model_cache_root, DEFAULT_MODEL_CACHE_ROOT)
                     path_input_col1, path_input_col2 = st.columns(2)
@@ -124,7 +135,11 @@ def render_settings_tab() -> None:
                             "LibreOffice / soffice 路径",
                             value=get_configured_soffice_path(),
                             key="soffice_binary_path_input",
-                            placeholder="留空则自动搜索系统路径",
+                            placeholder=localized_text(
+                                "Leave empty to auto-detect the system path",
+                                "留空则自动搜索系统路径",
+                                "留空則自動搜尋系統路徑",
+                            ),
                             help=localized_text(
                                 "LibreOffice is not a model. Configure the soffice executable file or installation directory here.",
                                 "LibreOffice 不是模型，这里配置的是 soffice 可执行文件或安装目录。",
@@ -186,6 +201,213 @@ def render_settings_tab() -> None:
                         }
                     )
 
+    with config_qdrant_tab:
+        current_qdrant = get_qdrant_config()
+        with st.container(border=True):
+            st.markdown(localized_text("#### Qdrant Connection", "#### Qdrant 连接", "#### Qdrant 連線"))
+            st.caption(
+                localized_text(
+                    "Use Local for a single-user desktop setup. Use HTTP / Docker when the vector store should run in a separate Qdrant service.",
+                    "单机个人使用可选择本地文件库；如果希望向量库独立运行，请选择 HTTP / Docker 服务。",
+                    "單機個人使用可選擇本地文件庫；如果希望向量庫獨立運行，請選擇 HTTP / Docker 服務。",
+                )
+            )
+            qdrant_mode_options = {
+                localized_text("Local File Store", "本地文件库", "本地文件庫"): "local",
+                localized_text("HTTP / Docker Service", "HTTP / Docker 服务", "HTTP / Docker 服務"): "http",
+            }
+            mode_labels = list(qdrant_mode_options.keys())
+            current_mode_label = next(
+                (label for label, value in qdrant_mode_options.items() if value == current_qdrant["mode"]),
+                mode_labels[0],
+            )
+            with st.form("qdrant_config_form"):
+                mode_label = st.selectbox(
+                    localized_text("Connection Mode", "连接方式", "連線方式"),
+                    mode_labels,
+                    index=mode_labels.index(current_mode_label),
+                    key="qdrant_mode_label",
+                    help=localized_text(
+                        "HTTP mode is compatible with Qdrant Docker and remote Qdrant services.",
+                        "HTTP 模式兼容 Qdrant Docker 和远程 Qdrant 服务。",
+                        "HTTP 模式相容 Qdrant Docker 和遠端 Qdrant 服務。",
+                    ),
+                )
+                qdrant_mode = qdrant_mode_options[mode_label]
+                qdrant_col1, qdrant_col2 = st.columns(2)
+                with qdrant_col1:
+                    qdrant_local_path = st.text_input(
+                        localized_text("Local Qdrant Path", "本地 Qdrant 路径", "本地 Qdrant 路徑"),
+                        value=current_qdrant["local_path"],
+                        key="qdrant_local_path_input",
+                        placeholder=localized_text(
+                            "Example: qdrant_db",
+                            "例如：qdrant_db",
+                            "例如：qdrant_db",
+                        ),
+                        help=localized_text(
+                            "Used only in Local mode. The default is qdrant_db under the project directory.",
+                            "仅本地模式使用；默认是项目目录下的 qdrant_db。",
+                            "僅本地模式使用；預設是專案目錄下的 qdrant_db。",
+                        ),
+                    )
+                with qdrant_col2:
+                    qdrant_url = st.text_input(
+                        localized_text("Qdrant HTTP URL", "Qdrant HTTP 地址", "Qdrant HTTP 地址"),
+                        value=current_qdrant["url"],
+                        key="qdrant_url_input",
+                        placeholder=localized_text(
+                            "Example: http://127.0.0.1:6333",
+                            "例如：http://127.0.0.1:6333",
+                            "例如：http://127.0.0.1:6333",
+                        ),
+                        help=localized_text(
+                            "For Docker Qdrant, the usual local URL is http://127.0.0.1:6333.",
+                            "Docker Qdrant 本机常用地址是 http://127.0.0.1:6333。",
+                            "Docker Qdrant 本機常用地址是 http://127.0.0.1:6333。",
+                        ),
+                    )
+                    qdrant_api_key = st.text_input(
+                        localized_text("Qdrant API Key", "Qdrant API Key", "Qdrant API Key"),
+                        value=current_qdrant["api_key"],
+                        key="qdrant_api_key_input",
+                        placeholder=localized_text(
+                            "Leave empty if no API key is configured",
+                            "未配置 API Key 时留空",
+                            "未配置 API Key 時留空",
+                        ),
+                        help=localized_text(
+                            "Leave empty when your local Docker Qdrant has no API key.",
+                            "本机 Docker Qdrant 没有鉴权时留空。",
+                            "本機 Docker Qdrant 沒有鑑權時留空。",
+                        ),
+                    )
+                qdrant_save_col, qdrant_reset_col = st.columns(2)
+                with qdrant_save_col:
+                    save_qdrant = st.form_submit_button(localized_text("Save Qdrant Settings", "保存 Qdrant 配置", "保存 Qdrant 配置"), type="primary")
+                with qdrant_reset_col:
+                    reset_qdrant = st.form_submit_button(localized_text("Restore Default Qdrant Settings", "恢复默认 Qdrant 配置", "恢復預設 Qdrant 配置"))
+
+            if save_qdrant:
+                try:
+                    save_qdrant_config(qdrant_mode, qdrant_local_path, qdrant_url, qdrant_api_key)
+                    try:
+                        get_file_summary_rows.clear()
+                        get_cached_library_counts.clear()
+                    except Exception:
+                        pass
+                    st.success(
+                        localized_text(
+                            "Qdrant settings saved. The vector client cache has been reset.",
+                            "Qdrant 配置已保存，向量客户端缓存已重置。",
+                            "Qdrant 配置已保存，向量客戶端快取已重置。",
+                        )
+                    )
+                    st.rerun()
+                except Exception as e:
+                    st.error(localized_text(f"Failed to save Qdrant settings: {e}", f"保存 Qdrant 配置失败：{e}", f"保存 Qdrant 配置失敗：{e}"))
+
+            if reset_qdrant:
+                save_qdrant_config(DEFAULT_QDRANT_MODE, DEFAULT_QDRANT_LOCAL_PATH, DEFAULT_QDRANT_URL, DEFAULT_QDRANT_API_KEY)
+                try:
+                    get_file_summary_rows.clear()
+                    get_cached_library_counts.clear()
+                except Exception:
+                    pass
+                st.success(localized_text("Default Qdrant settings restored.", "已恢复默认 Qdrant 配置。", "已恢復預設 Qdrant 配置。"))
+                st.rerun()
+
+            with st.expander(localized_text("Current Effective Qdrant Settings", "当前生效的 Qdrant 配置", "目前生效的 Qdrant 配置"), expanded=False):
+                masked_qdrant = get_qdrant_config()
+                st.json(
+                    {
+                        "mode": masked_qdrant["mode"],
+                        "local_path": masked_qdrant["local_path"],
+                        "url": masked_qdrant["url"],
+                        "api_key": masked_qdrant["api_key"],
+                        "collection": COLLECTION_NAME,
+                    }
+                )
+
+        with st.container(border=True):
+            st.markdown(localized_text("#### Local To HTTP Migration", "#### 本地向量库迁移到 HTTP/Docker", "#### 本地向量庫遷移到 HTTP/Docker"))
+            st.caption(
+                localized_text(
+                    "This copies existing vectors and payloads from the local qdrant_db to an HTTP/Docker Qdrant service. It does not reparse files or regenerate embeddings.",
+                    "这里会把本地 qdrant_db 已有向量和 payload 复制到 HTTP/Docker Qdrant；不会重新解析文件，也不会重新生成向量。",
+                    "這裡會把本地 qdrant_db 已有向量和 payload 複製到 HTTP/Docker Qdrant；不會重新解析文件，也不會重新生成向量。",
+                )
+            )
+            migrate_col1, migrate_col2 = st.columns(2)
+            with migrate_col1:
+                migrate_source_path = st.text_input(
+                    localized_text("Source Local Path", "来源本地路径", "來源本地路徑"),
+                    value=current_qdrant["local_path"],
+                    key="qdrant_migrate_source_path",
+                    placeholder=localized_text(
+                        "Example: qdrant_db",
+                        "例如：qdrant_db",
+                        "例如：qdrant_db",
+                    ),
+                )
+                migrate_recreate = st.checkbox(
+                    localized_text("Recreate Target Collection First", "先重建目标 Collection", "先重建目標 Collection"),
+                    value=False,
+                    key="qdrant_migrate_recreate",
+                    help=localized_text(
+                        "Enable this only if the target collection can be overwritten.",
+                        "只有确认目标 Collection 可以覆盖时才勾选。",
+                        "只有確認目標 Collection 可以覆蓋時才勾選。",
+                    ),
+                )
+            with migrate_col2:
+                migrate_target_url = st.text_input(
+                    localized_text("Target HTTP URL", "目标 HTTP 地址", "目標 HTTP 地址"),
+                    value=current_qdrant["url"],
+                    key="qdrant_migrate_target_url",
+                    placeholder=localized_text(
+                        "Example: http://127.0.0.1:6333",
+                        "例如：http://127.0.0.1:6333",
+                        "例如：http://127.0.0.1:6333",
+                    ),
+                )
+                migrate_target_key = st.text_input(
+                    localized_text("Target API Key", "目标 API Key", "目標 API Key"),
+                    value=current_qdrant["api_key"],
+                    key="qdrant_migrate_target_key",
+                    placeholder=localized_text(
+                        "Leave empty if the target Qdrant service has no API key",
+                        "目标 Qdrant 服务没有 API Key 时留空",
+                        "目標 Qdrant 服務沒有 API Key 時留空",
+                    ),
+                )
+
+            if st.button(localized_text("Copy Local Vectors To HTTP Qdrant", "复制本地向量到 HTTP Qdrant", "複製本地向量到 HTTP Qdrant"), key="migrate_qdrant_to_http"):
+                progress_box = st.empty()
+                try:
+                    copied = migrate_local_qdrant_to_http(
+                        target_url=migrate_target_url,
+                        target_api_key=migrate_target_key,
+                        source_path=migrate_source_path,
+                        recreate_target=migrate_recreate,
+                        progress_callback=lambda count: progress_box.info(
+                            localized_text(
+                                f"Copied {count} vector points...",
+                                f"已复制 {count} 个向量点...",
+                                f"已複製 {count} 個向量點...",
+                            )
+                        ),
+                    )
+                    st.success(
+                        localized_text(
+                            f"Migration completed. Copied {copied} vector points.",
+                            f"迁移完成，已复制 {copied} 个向量点。",
+                            f"遷移完成，已複製 {copied} 個向量點。",
+                        )
+                    )
+                except Exception as e:
+                    st.error(localized_text(f"Migration failed: {e}", f"迁移失败：{e}", f"遷移失敗：{e}"))
+
     with config_llm_tab:
         current_config = get_llm_config()
         with st.form("llm_config_form"):
@@ -218,7 +440,11 @@ def render_settings_tab() -> None:
                 api_key = st.text_input(
                     "API Key",
                     value=current_config["api_key"],
-                    placeholder="没有鉴权时可填 EMPTY",
+                    placeholder=localized_text(
+                        "Use EMPTY if no authentication is required",
+                        "没有鉴权时可填 EMPTY",
+                        "沒有鑑權時可填 EMPTY",
+                    ),
                 )
                 model = st.text_input(
                     "默认模型名称",
@@ -234,12 +460,20 @@ def render_settings_tab() -> None:
                 fast_model = st.text_input(
                     "快速模式模型名",
                     value=current_config.get("fast_model", current_config["model"]),
-                    placeholder="留空则使用默认模型名称",
+                    placeholder=localized_text(
+                        "Leave empty to use the default model name",
+                        "留空则使用默认模型名称",
+                        "留空則使用預設模型名稱",
+                    ),
                 )
                 thinking_model = st.text_input(
                     "思考模式模型名",
                     value=current_config.get("thinking_model", current_config["model"]),
-                    placeholder="如果后端用不同模型区分快慢，可在这里填思考模型名",
+                    placeholder=localized_text(
+                        "If the backend uses a separate thinking model, enter its name here",
+                        "如果后端用不同模型区分快慢，可在这里填思考模型名",
+                        "如果後端用不同模型區分快慢，可在這裡填思考模型名",
+                    ),
                 )
                 st.caption(
                     localized_text(
@@ -255,14 +489,22 @@ def render_settings_tab() -> None:
                     "快速模式 extra_body JSON",
                     value=current_config.get("fast_extra_body", DEFAULT_LLM_EXTRA_BODY),
                     height=90,
-                    placeholder='例如：{"enable_thinking": false}',
+                    placeholder=localized_text(
+                        'Example: {"enable_thinking": false}',
+                        '例如：{"enable_thinking": false}',
+                        '例如：{"enable_thinking": false}',
+                    ),
                 )
             with extra_col2:
                 thinking_extra_body = st.text_area(
                     "思考模式 extra_body JSON",
                     value=current_config.get("thinking_extra_body", DEFAULT_LLM_EXTRA_BODY),
                     height=90,
-                    placeholder='例如：{"enable_thinking": true}',
+                    placeholder=localized_text(
+                        'Example: {"enable_thinking": true}',
+                        '例如：{"enable_thinking": true}',
+                        '例如：{"enable_thinking": true}',
+                    ),
                 )
 
             col_save, col_reset = st.columns([1, 1])
