@@ -9,6 +9,7 @@ $LanguageFile = Join-Path $RootDir ".launcher_lang"
 $ThemeFile = Join-Path $RootDir ".launcher_theme"
 $StreamlitConfigFile = Join-Path $RootDir ".streamlit\config.toml"
 $AppUrl = "http://127.0.0.1:8501"
+$RepoGiteeUrl = if ($env:DOC_RAG_GITEE_REPO_URL) { $env:DOC_RAG_GITEE_REPO_URL } else { "https://gitee.com/agenius66/ocr_-rag_-ui.git" }
 $UpdateGitHubUrl = if ($env:DOC_RAG_UPDATE_GITHUB_URL) { $env:DOC_RAG_UPDATE_GITHUB_URL } else { "https://raw.githubusercontent.com/agenius666/Ocr_Rag_UI/main/update/latest.json" }
 $UpdateGiteeUrl = if ($env:DOC_RAG_UPDATE_GITEE_URL) { $env:DOC_RAG_UPDATE_GITEE_URL } else { "https://gitee.com/agenius66/ocr_-rag_-ui/raw/master/update/latest.json" }
 $Script:DocRagLang = ""
@@ -344,13 +345,88 @@ function Install-Dependencies {
     & $venvPython -m pip install -r requirements.txt
 }
 
+function Get-UniqueStrings {
+    param([string[]]$Values)
+    $seen = @{}
+    $result = New-Object System.Collections.Generic.List[string]
+    foreach ($value in $Values) {
+        if ([string]::IsNullOrWhiteSpace($value)) {
+            continue
+        }
+        $key = $value.Trim().ToLowerInvariant()
+        if (-not $seen.ContainsKey($key)) {
+            $seen[$key] = $true
+            $result.Add($value.Trim())
+        }
+    }
+    return $result.ToArray()
+}
+
+function Try-GitPull {
+    param([string]$Repo, [string]$Branch)
+    & git pull --ff-only $Repo $Branch 2>&1 | ForEach-Object { Write-Host $_ }
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Try-DefaultGitPull {
+    & git pull --ff-only 2>&1 | ForEach-Object { Write-Host $_ }
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Pull-WithFallback {
+    Say "Updating source code..." "正在更新源码..." "正在更新原始碼..."
+    if (Try-DefaultGitPull) {
+        return $true
+    }
+
+    Say "Default Git remote update failed. Trying Gitee fallback..." "默认 Git 源更新失败，正在尝试 Gitee 备用仓库..." "預設 Git 來源更新失敗，正在嘗試 Gitee 備用倉庫..."
+
+    $branch = ""
+    try {
+        $branch = (git rev-parse --abbrev-ref HEAD 2>$null).Trim()
+    } catch {
+        $branch = ""
+    }
+    if ($branch -eq "HEAD") {
+        $branch = ""
+    }
+
+    $remoteNames = @()
+    try {
+        $remoteNames = @(git remote 2>$null)
+    } catch {
+        $remoteNames = @()
+    }
+
+    $repos = New-Object System.Collections.Generic.List[string]
+    if ($remoteNames -contains "gitee") {
+        $repos.Add("gitee")
+    }
+    $repos.Add($RepoGiteeUrl)
+    $branches = Get-UniqueStrings @($branch, "main", "master")
+
+    foreach ($repo in (Get-UniqueStrings $repos.ToArray())) {
+        foreach ($candidateBranch in $branches) {
+            Write-Host "$(Msg 'Trying fallback: ' '尝试备用仓库：' '嘗試備用倉庫：')$repo $candidateBranch"
+            if (Try-GitPull $repo $candidateBranch) {
+                return $true
+            }
+        }
+    }
+
+    Say "Source update failed. Please check your network or update manually from GitHub/Gitee." "源码更新失败。请检查网络，或从 GitHub/Gitee 手动更新。" "原始碼更新失敗。請檢查網路，或從 GitHub/Gitee 手動更新。"
+    return $false
+}
+
 function Update-Source {
     Set-Location $RootDir
     if (-not (Test-Path (Join-Path $RootDir ".git"))) {
         Say "This does not look like a Git checkout. Download the latest ZIP or rerun bootstrap." "当前目录不是 Git 仓库。请下载最新版 ZIP，或重新运行 bootstrap 安装命令。" "目前目錄不是 Git 倉庫。請下載最新版 ZIP，或重新執行 bootstrap 安裝命令。"
         return
     }
-    git pull --ff-only
+    if (-not (Pull-WithFallback)) {
+        return
+    }
     if (Test-Path (Join-Path $RootDir ".venv\Scripts\python.exe")) {
         Install-Dependencies
     }

@@ -230,6 +230,81 @@ function Ensure-Python {
     return $python
 }
 
+function Get-UniqueStrings {
+    param([string[]]$Values)
+    $seen = @{}
+    $result = New-Object System.Collections.Generic.List[string]
+    foreach ($value in $Values) {
+        if ([string]::IsNullOrWhiteSpace($value)) {
+            continue
+        }
+        $key = $value.Trim().ToLowerInvariant()
+        if (-not $seen.ContainsKey($key)) {
+            $seen[$key] = $true
+            $result.Add($value.Trim())
+        }
+    }
+    return $result.ToArray()
+}
+
+function Try-GitPullInRepo {
+    param([string]$TargetDir, [string]$Repo, [string]$Branch)
+    & git -C $TargetDir pull --ff-only $Repo $Branch 2>&1 | ForEach-Object { Write-Host $_ }
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Try-DefaultGitPullInRepo {
+    param([string]$TargetDir)
+    & git -C $TargetDir pull --ff-only 2>&1 | ForEach-Object { Write-Host $_ }
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Pull-ExistingRepo {
+    param([string]$TargetDir)
+
+    Say "Existing Git repository found. Pulling latest code..." "发现已有 Git 仓库，正在更新..." "發現已有 Git 倉庫，正在更新..."
+    if (Try-DefaultGitPullInRepo $TargetDir) {
+        return
+    }
+
+    Say "Default Git remote update failed. Trying Gitee fallback..." "默认 Git 源更新失败，正在尝试 Gitee 备用仓库..." "預設 Git 來源更新失敗，正在嘗試 Gitee 備用倉庫..."
+
+    $branch = ""
+    try {
+        $branch = (git -C $TargetDir rev-parse --abbrev-ref HEAD 2>$null).Trim()
+    } catch {
+        $branch = ""
+    }
+    if ($branch -eq "HEAD") {
+        $branch = ""
+    }
+
+    $remoteNames = @()
+    try {
+        $remoteNames = @(git -C $TargetDir remote 2>$null)
+    } catch {
+        $remoteNames = @()
+    }
+
+    $repos = New-Object System.Collections.Generic.List[string]
+    if ($remoteNames -contains "gitee") {
+        $repos.Add("gitee")
+    }
+    $repos.Add($GiteeRepoUrl)
+    $branches = Get-UniqueStrings @($branch, "main", "master")
+
+    foreach ($repo in (Get-UniqueStrings $repos.ToArray())) {
+        foreach ($candidateBranch in $branches) {
+            Write-Host "$(Msg 'Trying fallback: ' '尝试备用仓库：' '嘗試備用倉庫：')$repo $candidateBranch"
+            if (Try-GitPullInRepo $TargetDir $repo $candidateBranch) {
+                return
+            }
+        }
+    }
+
+    Fail "Source update failed. Please check your network or update manually from GitHub/Gitee." "源码更新失败。请检查网络，或从 GitHub/Gitee 手动更新。" "原始碼更新失敗。請檢查網路，或從 GitHub/Gitee 手動更新。"
+}
+
 function Clone-Or-UpdateRepo {
     param([string]$TargetDir)
     $parent = Split-Path -Parent $TargetDir
@@ -252,8 +327,7 @@ function Clone-Or-UpdateRepo {
     }
 
     if (Test-Path -LiteralPath (Join-Path $TargetDir ".git")) {
-        Say "Existing Git repository found. Pulling latest code..." "发现已有 Git 仓库，正在更新..." "發現已有 Git 倉庫，正在更新..."
-        git -C $TargetDir pull --ff-only
+        Pull-ExistingRepo $TargetDir
         return
     }
 

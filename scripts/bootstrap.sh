@@ -160,6 +160,57 @@ PY
   return 1
 }
 
+unique_words() {
+  awk 'NF && !seen[$0]++'
+}
+
+pull_existing_repo() {
+  local target_dir="$1"
+  local branch
+  local repo
+  local candidate_branch
+  local repos=()
+  local branches=()
+
+  say "Existing Git repository found. Pulling latest code: $target_dir" "发现已有 Git 仓库，正在更新：$target_dir" "發現已有 Git 倉庫，正在更新：$target_dir"
+  if git -C "$target_dir" pull --ff-only; then
+    return 0
+  fi
+
+  say \
+    "Default Git remote update failed. Trying Gitee fallback..." \
+    "默认 Git 源更新失败，正在尝试 Gitee 备用仓库..." \
+    "預設 Git 來源更新失敗，正在嘗試 Gitee 備用倉庫..."
+
+  branch="$(git -C "$target_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  if [ "$branch" = "HEAD" ]; then
+    branch=""
+  fi
+
+  if git -C "$target_dir" remote 2>/dev/null | grep -qx "gitee"; then
+    repos+=("gitee")
+  fi
+  repos+=("$GITEE_REPO_URL")
+
+  while IFS= read -r candidate_branch; do
+    branches+=("$candidate_branch")
+  done < <(printf '%s\n%s\n%s\n' "$branch" "main" "master" | unique_words)
+
+  while IFS= read -r repo; do
+    for candidate_branch in "${branches[@]}"; do
+      printf '%s%s %s\n' "$(msg 'Trying fallback: ' '尝试备用仓库：' '嘗試備用倉庫：')" "$repo" "$candidate_branch"
+      if git -C "$target_dir" pull --ff-only "$repo" "$candidate_branch"; then
+        return 0
+      fi
+    done
+  done < <(printf '%s\n' "${repos[@]}" | unique_words)
+
+  die \
+    "Source update failed. Please check your network or update manually from GitHub/Gitee." \
+    "源码更新失败。请检查网络，或从 GitHub/Gitee 手动更新。" \
+    "原始碼更新失敗。請檢查網路，或從 GitHub/Gitee 手動更新。"
+}
+
 clone_or_update_repo() {
   mkdir -p "$(dirname "$INSTALL_DIR")"
   if [ ! -d "$INSTALL_DIR" ]; then
@@ -172,8 +223,7 @@ clone_or_update_repo() {
   fi
 
   if [ -d "$INSTALL_DIR/.git" ]; then
-    say "Existing Git repository found. Pulling latest code: $INSTALL_DIR" "发现已有 Git 仓库，正在更新：$INSTALL_DIR" "發現已有 Git 倉庫，正在更新：$INSTALL_DIR"
-    git -C "$INSTALL_DIR" pull --ff-only
+    pull_existing_repo "$INSTALL_DIR"
     return
   fi
 

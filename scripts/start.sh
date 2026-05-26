@@ -293,7 +293,7 @@ menu() {
     case "$choice" in
       1) start_app ;;
       2) check_update manual ;;
-      3) bash "$SCRIPT_DIR/update.sh" ;;
+      3) bash "$SCRIPT_DIR/update.sh" || say "Update source failed." "更新源码失败。" "更新原始碼失敗。" ;;
       4) bash "$SCRIPT_DIR/install.sh" ;;
       5) show_version ;;
       6) theme_menu ;;
