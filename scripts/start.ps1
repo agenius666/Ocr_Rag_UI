@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = "Continue"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$RootDir = Split-Path -Parent $ScriptDir
+$RootDir = Split-Path -Parent $ScriptDir1
 $LanguageFile = Join-Path $RootDir ".launcher_lang"
 $ThemeFile = Join-Path $RootDir ".launcher_theme"
 $StreamlitConfigFile = Join-Path $RootDir ".streamlit\config.toml"
