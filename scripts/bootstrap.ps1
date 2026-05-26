@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$InstallDir = "",
     [string]$Language = ""
 )
@@ -60,6 +60,12 @@ function Msg {
 function Say {
     param([string]$En, [string]$ZhCn, [string]$ZhTw)
     Write-Host (Msg $En $ZhCn $ZhTw)
+}
+
+function Write-Utf8NoBom {
+    param([string]$Path, [string]$Content)
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, $Content, $encoding)
 }
 
 function Pause-BeforeExit {
@@ -288,7 +294,7 @@ function Install-Dependencies {
     & $venvPython -m pip install --upgrade pip
     Say "Installing project dependencies. This can take a while..." "正在安装项目依赖，这一步可能需要较长时间..." "正在安裝專案依賴，這一步可能需要較長時間..."
     & $venvPython -m pip install -r requirements.txt
-    Set-Content -Path (Join-Path $TargetDir ".launcher_lang") -Value $Script:DocRagLang -Encoding UTF8
+    Write-Utf8NoBom -Path (Join-Path $TargetDir ".launcher_lang") -Content "$Script:DocRagLang`n"
 }
 
 function Write-RootLauncher {
@@ -299,7 +305,7 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $StartScript = Join-Path $Root "scripts\start.ps1"
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $StartScript
 '@
-    Set-Content -Path $launcher -Value $content -Encoding UTF8
+    Write-Utf8NoBom -Path $launcher -Content ($content.TrimEnd() + "`n")
     Say "Launch later with: powershell -ExecutionPolicy Bypass -File start.ps1" "以后可启动：右键 start.ps1 选择“使用 PowerShell 运行”，或执行 powershell -ExecutionPolicy Bypass -File start.ps1" "以後可啟動：右鍵 start.ps1 選擇「使用 PowerShell 執行」，或執行 powershell -ExecutionPolicy Bypass -File start.ps1"
 }
 

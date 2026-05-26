@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$Language = ""
 )
 
@@ -47,7 +47,7 @@ function Choose-Language {
         "3" { $Script:DocRagLang = "zh_TW" }
         default { $Script:DocRagLang = "en" }
     }
-    Set-Content -Path $LanguageFile -Value $Script:DocRagLang -Encoding UTF8
+    Write-Utf8NoBom -Path $LanguageFile -Content "$Script:DocRagLang`n"
 }
 
 function Msg {
@@ -73,6 +73,22 @@ function Read-MenuChoice {
     return $choice
 }
 
+function Read-TextWithoutBom {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) {
+        return ""
+    }
+
+    $text = [System.IO.File]::ReadAllText($Path)
+    return $text.TrimStart([char]0xFEFF)
+}
+
+function Write-Utf8NoBom {
+    param([string]$Path, [string]$Content)
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, $Content, $encoding)
+}
+
 function Normalize-Theme {
     param([string]$Value)
     $Value = "$Value".Trim()
@@ -85,14 +101,15 @@ function Normalize-Theme {
 
 function Get-CurrentTheme {
     if (Test-Path $ThemeFile) {
-        $candidate = Normalize-Theme (Get-Content $ThemeFile -Raw)
+        $candidate = Normalize-Theme (Read-TextWithoutBom $ThemeFile)
         if ($candidate) {
             return $candidate
         }
     }
 
     if (Test-Path $StreamlitConfigFile) {
-        foreach ($line in Get-Content $StreamlitConfigFile) {
+        $configText = Read-TextWithoutBom $StreamlitConfigFile
+        foreach ($line in ($configText -split "`r?`n")) {
             if ($line -match '^\s*base\s*=\s*"([^"]+)"') {
                 $candidate = Normalize-Theme $Matches[1]
                 if ($candidate) {
@@ -121,7 +138,10 @@ function Set-StreamlitTheme {
 
     $lines = @()
     if (Test-Path $StreamlitConfigFile) {
-        $lines = @(Get-Content $StreamlitConfigFile)
+        $configText = Read-TextWithoutBom $StreamlitConfigFile
+        if (-not [string]::IsNullOrWhiteSpace($configText)) {
+            $lines = @($configText -split "`r?`n")
+        }
     }
 
     $out = New-Object System.Collections.Generic.List[string]
@@ -161,12 +181,13 @@ function Set-StreamlitTheme {
         $out.Add("base = `"$Theme`"")
     }
 
-    Set-Content -Path $StreamlitConfigFile -Value $out -Encoding UTF8
+    $content = (($out | ForEach-Object { "$_" }) -join "`n").TrimEnd() + "`n"
+    Write-Utf8NoBom -Path $StreamlitConfigFile -Content $content
 }
 
 function Apply-SavedTheme {
     $theme = Get-CurrentTheme
-    Set-Content -Path $ThemeFile -Value $theme -Encoding UTF8
+    Write-Utf8NoBom -Path $ThemeFile -Content "$theme`n"
     try {
         Set-StreamlitTheme $theme
     } catch {
@@ -192,7 +213,7 @@ function Theme-Menu {
                 continue
             }
         }
-        Set-Content -Path $ThemeFile -Value $theme -Encoding UTF8
+        Write-Utf8NoBom -Path $ThemeFile -Content "$theme`n"
         Set-StreamlitTheme $theme
         Say "Theme saved. Restart the app to apply it if Streamlit is already running." "主题已保存。如果 Streamlit 已在运行，请重启程序后生效。" "主題已儲存。如果 Streamlit 已在執行，請重新啟動程式後生效。"
     }
