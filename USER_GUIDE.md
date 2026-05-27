@@ -10,7 +10,7 @@ OCR RAG UI helps you build a local document knowledge base:
 
 1. Upload policies, regulatory requirements, enterprise materials, PDFs, images, Office files, CSV, or TXT.
 2. Parse text with structured extraction and OCR when needed.
-3. Generate embeddings with BGE-M3.
+3. Generate embeddings with the selected BGE embedding model.
 4. Store vectors in Qdrant.
 5. Ask questions, run compliance gap analysis, or write LLM results back to Excel.
 
@@ -42,9 +42,10 @@ http://127.0.0.1:8501
 Open **Settings**:
 
 - Language: choose English, Simplified Chinese, or Traditional Chinese.
-- Models and paths: set cache locations for PaddleOCR, BGE-M3, reranker, and LibreOffice.
-- Download and install sources: choose the Hugging Face endpoint for BGE-M3/reranker, the PaddleOCR model source, and the LibreOffice install source or custom single-command installer.
+- Models and paths: choose the embedding/reranker model and set cache locations for PaddleOCR, BGE models, rerankers, and LibreOffice.
+- Download and install sources: choose the Hugging Face endpoint for embedding/reranker models, the PaddleOCR model source, and the LibreOffice install source or custom single-command installer.
 - Vector store: choose local Qdrant or HTTP/Docker Qdrant.
+- Vector store conversion: re-embed stored chunks between `BAAI/bge-m3` and `BAAI/bge-base-zh-v1.5` when you change embedding dimensions.
 - Local LLM: configure the OpenAI-compatible or Anthropic-compatible endpoint, API key, model names, and optional `extra_body`.
 
 Settings are saved locally in `app_state.sqlite3`.
@@ -151,7 +152,7 @@ OCR RAG UI 用于搭建本地文档知识库：
 
 1. 上传制度、监管要求、企业资料、PDF、图片、Office 文件、CSV 或 TXT。
 2. 通过结构化解析和 OCR 提取文本。
-3. 使用 BGE-M3 生成向量。
+3. 使用所选 BGE 向量模型生成向量。
 4. 写入 Qdrant 向量库。
 5. 进行检索问答、合规差距分析，或把大模型结果回写到 Excel。
 
@@ -183,9 +184,10 @@ http://127.0.0.1:8501
 打开 **配置中心**：
 
 - 语言设置：选择 English、简体中文或繁體中文。
-- 模型与路径：设置 PaddleOCR、BGE-M3、重排模型和 LibreOffice 路径。
-- 下载与安装源：设置 BGE-M3/Reranker 使用的 Hugging Face 端点、PaddleOCR 模型来源，以及 LibreOffice 安装来源或自定义单条安装命令。
+- 模型与路径：选择向量模型/重排模型，并设置 PaddleOCR、BGE 模型、重排模型和 LibreOffice 路径。
+- 下载与安装源：设置向量模型/Reranker 使用的 Hugging Face 端点、PaddleOCR 模型来源，以及 LibreOffice 安装来源或自定义单条安装命令。
 - 向量库连接：选择本地 Qdrant 或 HTTP/Docker Qdrant。
+- 向量库模型转换：在 `BAAI/bge-m3` 和 `BAAI/bge-base-zh-v1.5` 之间重新向量化已有 chunk 文本，用于切换不同向量维度。
 - 本地大模型：配置 OpenAI 兼容或 Anthropic 兼容接口、API Key、模型名和可选 `extra_body`。
 
 配置会保存在本地 `app_state.sqlite3`。
@@ -292,7 +294,7 @@ OCR RAG UI 用於建立本機文件知識庫：
 
 1. 上傳制度、監管要求、企業資料、PDF、圖片、Office 文件、CSV 或 TXT。
 2. 透過結構化解析和 OCR 提取文字。
-3. 使用 BGE-M3 生成向量。
+3. 使用所選 BGE 向量模型生成向量。
 4. 寫入 Qdrant 向量庫。
 5. 進行檢索問答、合規差距分析，或把大模型結果回寫到 Excel。
 
@@ -324,9 +326,10 @@ http://127.0.0.1:8501
 開啟 **配置中心**：
 
 - 語言設定：選擇 English、简体中文 或 繁體中文。
-- 模型與路徑：設定 PaddleOCR、BGE-M3、重排模型和 LibreOffice 路徑。
-- 下載與安裝源：設定 BGE-M3/Reranker 使用的 Hugging Face 端點、PaddleOCR 模型來源，以及 LibreOffice 安裝來源或自訂單條安裝命令。
+- 模型與路徑：選擇向量模型/重排模型，並設定 PaddleOCR、BGE 模型、重排模型和 LibreOffice 路徑。
+- 下載與安裝源：設定向量模型/Reranker 使用的 Hugging Face 端點、PaddleOCR 模型來源，以及 LibreOffice 安裝來源或自訂單條安裝命令。
 - 向量庫連線：選擇本機 Qdrant 或 HTTP/Docker Qdrant。
+- 向量庫模型轉換：在 `BAAI/bge-m3` 和 `BAAI/bge-base-zh-v1.5` 之間重新向量化既有 chunk 文字，用於切換不同向量維度。
 - 本地大模型：配置 OpenAI 相容或 Anthropic 相容接口、API Key、模型名和可選 `extra_body`。
 
 配置會保存在本機 `app_state.sqlite3`。

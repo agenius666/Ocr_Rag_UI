@@ -47,180 +47,13 @@ def render_settings_tab() -> None:
                 st.rerun()
 
     with config_model_tab:
-        ocr_col, path_col = st.columns([1, 2])
-        with ocr_col:
-            with st.container(border=True):
-                st.markdown(localized_text("#### OCR Model", "#### OCR 模型", "#### OCR 模型"))
-                paddleocr_model_labels = list(PADDLEOCR_MODEL_OPTIONS.keys())
-                current_paddleocr_label = get_paddleocr_model_label()
-                selected_paddleocr_label = st.selectbox(
-                    localized_text("PaddleOCR Model", "PaddleOCR 模型", "PaddleOCR 模型"),
-                    paddleocr_model_labels,
-                    index=paddleocr_model_labels.index(current_paddleocr_label),
-                    key="config_paddleocr_model_label",
-                    help=localized_text(
-                        "Server is more accurate but uses more resources. Mobile uses less memory and is faster.",
-                        "Server 精度更高但占用更大；Mobile 占用更低、速度更快。",
-                        "Server 精度更高但佔用更大；Mobile 佔用更低、速度更快。",
-                    ),
-                )
-                selected_config = PADDLEOCR_MODEL_OPTIONS[selected_paddleocr_label]
-                st.caption(localized_text("Detection model: ", "检测模型：", "偵測模型：") + selected_config["det"])
-                st.caption(localized_text("Recognition model: ", "识别模型：", "識別模型：") + selected_config["rec"])
-                if selected_paddleocr_label != current_paddleocr_label:
-                    save_paddleocr_model_label(selected_paddleocr_label)
-                    st.success(
-                        localized_text(
-                            "PaddleOCR model setting saved and OCR cache cleared.",
-                            "PaddleOCR 模型配置已保存，OCR 缓存已清理。",
-                            "PaddleOCR 模型配置已保存，OCR 快取已清理。",
-                        )
-                    )
-                    st.rerun()
-
-        with path_col:
-            with st.container(border=True):
-                st.markdown(localized_text("#### Model Storage Paths", "#### 模型保存路径", "#### 模型保存路徑"))
-                st.caption(
-                    localized_text(
-                        "By default, PaddleOCR, BGE-M3, and the reranker are cached under the project's model_cache directory. If a specific path is configured, that path is used first.",
-                        "默认会把 PaddleOCR、BGE-M3 和 Reranker 缓存在项目的 model_cache 目录下；单独指定路径后会优先读取指定路径。",
-                        "預設會把 PaddleOCR、BGE-M3 和 Reranker 快取在專案的 model_cache 目錄下；單獨指定路徑後會優先讀取指定路徑。",
-                    )
-                )
-                with st.form("model_cache_config_form"):
-                    model_cache_root = st.text_input(
-                        localized_text("Default Model Root", "默认模型根目录", "預設模型根目錄"),
-                        value=get_model_cache_root(),
-                        key="model_cache_root_input",
-                        placeholder=DEFAULT_MODEL_CACHE_ROOT,
-                        help=localized_text(
-                            "When a model-specific path is empty, model cache folders are created under this root.",
-                            "未单独指定模型路径时，会在该目录下创建各模型缓存目录。",
-                            "未單獨指定模型路徑時，會在該目錄下建立各模型快取目錄。",
-                        ),
-                    )
-                    default_root_for_form = normalize_local_path(model_cache_root, DEFAULT_MODEL_CACHE_ROOT)
-                    path_input_col1, path_input_col2 = st.columns(2)
-                    with path_input_col1:
-                        paddleocr_cache_dir = st.text_input(
-                            localized_text("PaddleOCR Model Directory", "PaddleOCR 模型目录", "PaddleOCR 模型目錄"),
-                            value=get_config_value("paddleocr_cache_dir", ""),
-                            key="paddleocr_cache_dir_input",
-                            placeholder=os.path.join(default_root_for_form, "paddlex"),
-                            help=localized_text(
-                                "Maps to PADDLE_PDX_CACHE_HOME. PaddleOCR official models are cached under official_models in this directory.",
-                                "对应 PADDLE_PDX_CACHE_HOME，PaddleOCR 官方模型会缓存到该目录下的 official_models。",
-                                "對應 PADDLE_PDX_CACHE_HOME，PaddleOCR 官方模型會快取到該目錄下的 official_models。",
-                            ),
-                        )
-                        bge_cache_dir = st.text_input(
-                            localized_text("BAAI/bge-m3 Model Directory", "BAAI/bge-m3 模型目录", "BAAI/bge-m3 模型目錄"),
-                            value=get_config_value("bge_cache_dir", ""),
-                            key="bge_cache_dir_input",
-                            placeholder=os.path.join(default_root_for_form, "bge-m3"),
-                            help=localized_text(
-                                "sentence-transformers/HuggingFace cache directory for BGE-M3.",
-                                "BGE-M3 的 sentence-transformers/HuggingFace 缓存目录。",
-                                "BGE-M3 的 sentence-transformers/HuggingFace 快取目錄。",
-                            ),
-                        )
-                    with path_input_col2:
-                        reranker_cache_dir = st.text_input(
-                            localized_text("BAAI/bge-reranker-v2-m3 Model Directory", "BAAI/bge-reranker-v2-m3 模型目录", "BAAI/bge-reranker-v2-m3 模型目錄"),
-                            value=get_config_value("reranker_cache_dir", ""),
-                            key="reranker_cache_dir_input",
-                            placeholder=os.path.join(default_root_for_form, "bge-reranker-v2-m3"),
-                            help=localized_text(
-                                "sentence-transformers/HuggingFace cache directory for the reranker.",
-                                "Reranker 的 sentence-transformers/HuggingFace 缓存目录。",
-                                "Reranker 的 sentence-transformers/HuggingFace 快取目錄。",
-                            ),
-                        )
-                        soffice_binary_path = st.text_input(
-                            localized_text("LibreOffice / soffice Path", "LibreOffice / soffice 路径", "LibreOffice / soffice 路徑"),
-                            value=get_configured_soffice_path(),
-                            key="soffice_binary_path_input",
-                            placeholder=localized_text(
-                                "Leave empty to auto-detect the system path",
-                                "留空则自动搜索系统路径",
-                                "留空則自動搜尋系統路徑",
-                            ),
-                            help=localized_text(
-                                "LibreOffice is not a model. Configure the soffice executable file or installation directory here.",
-                                "LibreOffice 不是模型，这里配置的是 soffice 可执行文件或安装目录。",
-                                "LibreOffice 不是模型，這裡配置的是 soffice 可執行文件或安裝目錄。",
-                            ),
-                        )
-
-                    path_col_save, path_col_reset = st.columns([1, 1])
-                    with path_col_save:
-                        save_model_paths = st.form_submit_button(localized_text("Save Model Paths", "保存模型路径", "保存模型路徑"), type="primary")
-                    with path_col_reset:
-                        reset_model_paths = st.form_submit_button(localized_text("Restore Defaults", "恢复默认路径", "恢復預設路徑"))
-
-                if save_model_paths:
-                    try:
-                        save_model_cache_config(
-                            model_cache_root,
-                            paddleocr_cache_dir,
-                            bge_cache_dir,
-                            reranker_cache_dir,
-                            soffice_binary_path,
-                        )
-                        if soffice_binary_path and not find_soffice_binary():
-                            st.warning(
-                                localized_text(
-                                    "Model paths were saved, but the current LibreOffice / soffice path does not point to an executable file.",
-                                    "模型路径已保存，但当前 LibreOffice / soffice 路径未检测到可执行文件。",
-                                    "模型路徑已保存，但當前 LibreOffice / soffice 路徑未檢測到可執行文件。",
-                                )
-                            )
-                        else:
-                            st.success(
-                                localized_text(
-                                    "Model paths saved. Loaded model caches were cleared; the next load will use the new paths.",
-                                    "模型路径已保存，已清理已加载模型缓存；下次加载会使用新路径。",
-                                    "模型路徑已保存，已清理已載入模型快取；下次載入會使用新路徑。",
-                                )
-                            )
-                    except Exception as e:
-                        st.error(localized_text(f"Failed to save model paths: {e}", f"保存模型路径失败：{e}", f"保存模型路徑失敗：{e}"))
-
-                if reset_model_paths:
-                    try:
-                        save_model_cache_config(DEFAULT_MODEL_CACHE_ROOT, "", "", "", DEFAULT_SOFFICE_BINARY_PATH)
-                        st.success(localized_text("Default model paths restored.", "已恢复默认模型路径。", "已恢復預設模型路徑。"))
-                        st.rerun()
-                    except Exception as e:
-                        st.error(localized_text(f"Failed to restore default model paths: {e}", f"恢复默认模型路径失败：{e}", f"恢復預設模型路徑失敗：{e}"))
-
-                current_download_config = get_model_download_config()
-                with st.expander(localized_text("Current Paths", "当前路径", "當前路徑"), expanded=False):
-                    st.json(
-                        {
-                            "model_cache_root": get_model_cache_root(),
-                            "paddleocr_cache_dir": get_paddleocr_cache_dir(),
-                            "bge_cache_dir": get_bge_cache_dir(),
-                            "reranker_cache_dir": get_reranker_cache_dir(),
-                            "huggingface_download_source": current_download_config["source_label"],
-                            "huggingface_endpoint": current_download_config["hf_endpoint"],
-                            "paddleocr_model_source": current_download_config["paddleocr_source_label"],
-                            "paddleocr_huggingface_endpoint": current_download_config["paddleocr_hf_endpoint"],
-                            "libreoffice_install_source": current_download_config["libreoffice_install_source_label"],
-                            "custom_libreoffice_install_command": current_download_config["custom_libreoffice_install_command"],
-                            "soffice_binary_path": get_configured_soffice_path() or localized_text("Auto-detect system path", "自动搜索系统路径", "自動搜尋系統路徑"),
-                            "detected_soffice": find_soffice_binary() or localized_text("Not detected", "未检测到", "未檢測到"),
-                        }
-                    )
-
         with st.container(border=True):
             st.markdown(localized_text("#### Download And Install Sources", "#### 下载与安装源", "#### 下載與安裝源"))
             st.caption(
                 localized_text(
-                    "Configure where BGE-M3, the reranker, PaddleOCR models, and LibreOffice installation commands are downloaded or resolved from.",
-                    "配置 BGE-M3、Reranker、PaddleOCR 模型和 LibreOffice 安装命令的下载或解析来源。",
-                    "配置 BGE-M3、Reranker、PaddleOCR 模型和 LibreOffice 安裝命令的下載或解析來源。",
+                    "Configure download or installation sources for embedding models, rerankers, PaddleOCR, and LibreOffice.",
+                    "配置文本向量化模型、重排模型、PaddleOCR 和 LibreOffice 的下载或安装来源。",
+                    "配置文字向量化模型、重排模型、PaddleOCR 和 LibreOffice 的下載或安裝來源。",
                 )
             )
             download_config = get_model_download_config()
@@ -243,14 +76,14 @@ def render_settings_tab() -> None:
                 source_col1, source_col2 = st.columns(2)
                 with source_col1:
                     selected_download_label = st.selectbox(
-                        localized_text("BGE-M3 / Reranker Source", "BGE-M3 / Reranker 下载源", "BGE-M3 / Reranker 下載源"),
+                        localized_text("Embedding / Reranker Source", "向量模型 / 重排模型下载源", "向量模型 / 重排模型下載源"),
                         download_source_labels,
                         index=download_source_labels.index(current_download_label),
                         key="model_download_source_select",
                         help=localized_text(
-                            "Controls Hugging Face compatible downloads used by sentence-transformers for BGE-M3 and the reranker.",
-                            "控制 sentence-transformers 下载 BGE-M3 和 Reranker 时使用的 Hugging Face 兼容端点。",
-                            "控制 sentence-transformers 下載 BGE-M3 和 Reranker 時使用的 Hugging Face 相容端點。",
+                            "Controls Hugging Face compatible downloads used by sentence-transformers for embedding and reranker models.",
+                            "控制 sentence-transformers 下载文本向量化模型和重排模型时使用的 Hugging Face 兼容端点。",
+                            "控制 sentence-transformers 下載文字向量化模型和重排模型時使用的 Hugging Face 相容端點。",
                         ),
                     )
                     selected_download_source = download_source_keys[download_source_labels.index(selected_download_label)]
@@ -260,9 +93,9 @@ def render_settings_tab() -> None:
                         key="custom_hf_endpoint_input",
                         placeholder="https://hf-mirror.com",
                         help=localized_text(
-                            "Only used when the BGE-M3 / reranker source is Custom. PaddleOCR also uses this endpoint when its source is Hugging Face.",
-                            "仅当 BGE-M3 / Reranker 下载源选择自定义时使用；PaddleOCR 下载源为 Hugging Face 时也会使用该端点。",
-                            "僅當 BGE-M3 / Reranker 下載源選擇自訂時使用；PaddleOCR 下載源為 Hugging Face 時也會使用該端點。",
+                            "Only used when the embedding / reranker source is Custom. PaddleOCR also uses this endpoint when its source is Hugging Face.",
+                            "仅当向量模型 / 重排模型下载源选择自定义时使用；PaddleOCR 下载源为 Hugging Face 时也会使用该端点。",
+                            "僅當向量模型 / 重排模型下載源選擇自訂時使用；PaddleOCR 下載源為 Hugging Face 時也會使用該端點。",
                         ),
                     )
                 with source_col2:
@@ -338,9 +171,9 @@ def render_settings_tab() -> None:
                     )
                     st.success(
                         localized_text(
-                            "Download and install sources saved. OCR, BGE-M3, and reranker caches were cleared; the next download/load will use the selected sources.",
-                            "下载与安装源已保存，已清理 OCR、BGE-M3 和 Reranker 加载缓存；下次下载/加载会使用所选来源。",
-                            "下載與安裝源已保存，已清理 OCR、BGE-M3 和 Reranker 載入快取；下次下載/載入會使用所選來源。",
+                            "Download and install sources saved. OCR, embedding, and reranker caches were cleared; the next download/load will use the selected sources.",
+                            "下载与安装源已保存，已清理 OCR、向量模型和重排模型加载缓存；下次下载/加载会使用所选来源。",
+                            "下載與安裝源已保存，已清理 OCR、向量模型和重排模型載入快取；下次下載/載入會使用所選來源。",
                         )
                     )
                     st.rerun()
@@ -351,6 +184,284 @@ def render_settings_tab() -> None:
                             f"保存下载与安装源失败：{e}",
                             f"保存下載與安裝源失敗：{e}",
                         )
+                    )
+
+        ocr_col, model_col = st.columns([1, 2])
+        with ocr_col:
+            with st.container(border=True):
+                st.markdown(localized_text("#### OCR Model", "#### OCR 模型", "#### OCR 模型"))
+                paddleocr_model_labels = list(PADDLEOCR_MODEL_OPTIONS.keys())
+                current_paddleocr_label = get_paddleocr_model_label()
+                selected_paddleocr_label = st.selectbox(
+                    localized_text("PaddleOCR Model", "PaddleOCR 模型", "PaddleOCR 模型"),
+                    paddleocr_model_labels,
+                    index=paddleocr_model_labels.index(current_paddleocr_label),
+                    key="config_paddleocr_model_label",
+                    help=localized_text(
+                        "Server is more accurate but uses more resources. Mobile uses less memory and is faster.",
+                        "Server 精度更高但占用更大；Mobile 占用更低、速度更快。",
+                        "Server 精度更高但佔用更大；Mobile 佔用更低、速度更快。",
+                    ),
+                )
+                selected_config = PADDLEOCR_MODEL_OPTIONS[selected_paddleocr_label]
+                st.caption(localized_text("Detection model: ", "检测模型：", "偵測模型：") + selected_config["det"])
+                st.caption(localized_text("Recognition model: ", "识别模型：", "識別模型：") + selected_config["rec"])
+                if selected_paddleocr_label != current_paddleocr_label:
+                    save_paddleocr_model_label(selected_paddleocr_label)
+                    st.success(
+                        localized_text(
+                            "PaddleOCR model setting saved and OCR cache cleared.",
+                            "PaddleOCR 模型配置已保存，OCR 缓存已清理。",
+                            "PaddleOCR 模型配置已保存，OCR 快取已清理。",
+                        )
+                    )
+                    st.rerun()
+
+        with model_col:
+            with st.container(border=True):
+                st.markdown(localized_text("#### Embedding And Reranker Models", "#### 向量与重排模型", "#### 向量與重排模型"))
+                st.caption(
+                    localized_text(
+                        "The embedding model controls vector dimensions and the active Qdrant collection. Switching models may point the app to a different vector store.",
+                        "文本向量化模型决定向量维度和当前 Qdrant Collection。切换模型后，应用可能会指向另一套向量库。",
+                        "文字向量化模型決定向量維度和目前 Qdrant Collection。切換模型後，應用可能會指向另一套向量庫。",
+                    )
+                )
+                with st.form("model_cache_config_form"):
+                    embedding_model_names = list(EMBEDDING_MODEL_OPTIONS.keys())
+                    embedding_model_labels = [get_embedding_model_label(model_name) for model_name in embedding_model_names]
+                    current_embedding_model = get_embedding_model_name()
+                    selected_embedding_label = st.selectbox(
+                        localized_text("Text Embedding Model", "文本向量化模型", "文字向量化模型"),
+                        embedding_model_labels,
+                        index=embedding_model_names.index(current_embedding_model),
+                        key="embedding_model_name_select",
+                        help=localized_text(
+                            "Used for text vectorization and vector retrieval. Different models use different vector dimensions, so existing vectors cannot be reused directly.",
+                            "用于文本向量化和向量检索。不同模型的向量维度不同，已有向量不能直接混用。",
+                            "用於文字向量化和向量檢索。不同模型的向量維度不同，既有向量不能直接混用。",
+                        ),
+                    )
+                    selected_embedding_model = embedding_model_names[embedding_model_labels.index(selected_embedding_label)]
+                    reranker_model_names = list(RERANKER_MODEL_OPTIONS.keys())
+                    reranker_model_labels = [get_reranker_model_label(model_name) for model_name in reranker_model_names]
+                    current_reranker_model = get_reranker_model_name()
+                    selected_reranker_label = st.selectbox(
+                        localized_text("Candidate Reranker Model", "候选片段重排模型", "候選片段重排模型"),
+                        reranker_model_labels,
+                        index=reranker_model_names.index(current_reranker_model),
+                        key="reranker_model_name_select",
+                        help=localized_text(
+                            "Only used when reranking is enabled in retrieval settings. Smaller rerankers usually use less memory but may be less accurate.",
+                            "仅在检索设置中启用重排时使用。较小的重排模型通常更省内存，但精度可能下降。",
+                            "僅在檢索設定中啟用重排時使用。較小的重排模型通常更省記憶體，但精度可能下降。",
+                        ),
+                    )
+                    selected_reranker_model = reranker_model_names[reranker_model_labels.index(selected_reranker_label)]
+
+                    confirm_embedding_switch = True
+                    if selected_embedding_model != current_embedding_model:
+                        st.warning(
+                            localized_text(
+                                "You are switching the embedding model. The app will use the collection matched to the new vector dimension. If that collection is empty or your backup uses another dimension, use Vector Store conversion or import a matching backup.",
+                                "你正在切换文本向量化模型。应用会使用与新向量维度匹配的 Collection。如果该 Collection 为空，或备份维度不同，请使用向量库模型转换或导入匹配备份。",
+                                "你正在切換文字向量化模型。應用會使用與新向量維度匹配的 Collection。如果該 Collection 為空，或備份維度不同，請使用向量庫模型轉換或導入匹配備份。",
+                            )
+                        )
+                        st.info(
+                            localized_text(
+                                f"Current: {current_embedding_model} -> {get_collection_name_for_embedding_model(current_embedding_model)} ({get_embedding_vector_size(current_embedding_model)}D). New: {selected_embedding_model} -> {get_collection_name_for_embedding_model(selected_embedding_model)} ({get_embedding_vector_size(selected_embedding_model)}D).",
+                                f"当前：{current_embedding_model} -> {get_collection_name_for_embedding_model(current_embedding_model)}（{get_embedding_vector_size(current_embedding_model)} 维）。新配置：{selected_embedding_model} -> {get_collection_name_for_embedding_model(selected_embedding_model)}（{get_embedding_vector_size(selected_embedding_model)} 维）。",
+                                f"目前：{current_embedding_model} -> {get_collection_name_for_embedding_model(current_embedding_model)}（{get_embedding_vector_size(current_embedding_model)} 維）。新配置：{selected_embedding_model} -> {get_collection_name_for_embedding_model(selected_embedding_model)}（{get_embedding_vector_size(selected_embedding_model)} 維）。",
+                            )
+                        )
+                        confirm_embedding_switch = st.checkbox(
+                            localized_text(
+                                "I understand that switching the embedding model changes the active vector collection.",
+                                "我已了解切换向量模型会改变当前使用的向量库 Collection。",
+                                "我已了解切換向量模型會改變目前使用的向量庫 Collection。",
+                            ),
+                            value=False,
+                            key="confirm_embedding_model_switch",
+                        )
+
+                    model_cache_root = st.text_input(
+                        localized_text("Default Model Root", "默认模型根目录", "預設模型根目錄"),
+                        value=get_model_cache_root(),
+                        key="model_cache_root_input",
+                        placeholder=DEFAULT_MODEL_CACHE_ROOT,
+                        help=localized_text(
+                            "When a model-specific path is empty, model cache folders are created under this root.",
+                            "未单独指定模型路径时，会在该目录下创建各模型缓存目录。",
+                            "未單獨指定模型路徑時，會在該目錄下建立各模型快取目錄。",
+                        ),
+                    )
+                    default_root_for_form = normalize_local_path(model_cache_root, DEFAULT_MODEL_CACHE_ROOT)
+                    path_input_col1, path_input_col2 = st.columns(2)
+                    with path_input_col1:
+                        paddleocr_cache_dir = st.text_input(
+                            localized_text("PaddleOCR Model Directory", "PaddleOCR 模型目录", "PaddleOCR 模型目錄"),
+                            value=get_config_value("paddleocr_cache_dir", ""),
+                            key="paddleocr_cache_dir_input",
+                            placeholder=os.path.join(default_root_for_form, "paddlex"),
+                            help=localized_text(
+                                "Maps to PADDLE_PDX_CACHE_HOME. PaddleOCR official models are cached under official_models in this directory.",
+                                "对应 PADDLE_PDX_CACHE_HOME，PaddleOCR 官方模型会缓存到该目录下的 official_models。",
+                                "對應 PADDLE_PDX_CACHE_HOME，PaddleOCR 官方模型會快取到該目錄下的 official_models。",
+                            ),
+                        )
+                        bge_cache_dir = st.text_input(
+                            localized_text("BAAI/bge-m3 Model Directory", "BAAI/bge-m3 模型目录", "BAAI/bge-m3 模型目錄"),
+                            value=get_config_value("bge_cache_dir", ""),
+                            key="bge_cache_dir_input",
+                            placeholder=os.path.join(default_root_for_form, "bge-m3"),
+                            help=localized_text(
+                                "Cache directory for BAAI/bge-m3. Leave empty to use the default model root.",
+                                "BAAI/bge-m3 的缓存目录；留空则使用默认模型根目录。",
+                                "BAAI/bge-m3 的快取目錄；留空則使用預設模型根目錄。",
+                            ),
+                        )
+                        bge_base_cache_dir = st.text_input(
+                            localized_text("BAAI/bge-base-zh-v1.5 Model Directory", "BAAI/bge-base-zh-v1.5 模型目录", "BAAI/bge-base-zh-v1.5 模型目錄"),
+                            value=get_config_value("bge_base_cache_dir", ""),
+                            key="bge_base_cache_dir_input",
+                            placeholder=os.path.join(default_root_for_form, "bge-base-zh-v1.5"),
+                            help=localized_text(
+                                "Cache directory for BAAI/bge-base-zh-v1.5. This model uses 768-dimensional vectors.",
+                                "BAAI/bge-base-zh-v1.5 的缓存目录，该模型使用 768 维向量。",
+                                "BAAI/bge-base-zh-v1.5 的快取目錄，該模型使用 768 維向量。",
+                            ),
+                        )
+                    with path_input_col2:
+                        reranker_cache_dir = st.text_input(
+                            localized_text("BAAI/bge-reranker-v2-m3 Model Directory", "BAAI/bge-reranker-v2-m3 模型目录", "BAAI/bge-reranker-v2-m3 模型目錄"),
+                            value=get_config_value("reranker_cache_dir", ""),
+                            key="reranker_cache_dir_input",
+                            placeholder=os.path.join(default_root_for_form, "bge-reranker-v2-m3"),
+                            help=localized_text(
+                                "Cache directory for BAAI/bge-reranker-v2-m3.",
+                                "BAAI/bge-reranker-v2-m3 的缓存目录。",
+                                "BAAI/bge-reranker-v2-m3 的快取目錄。",
+                            ),
+                        )
+                        reranker_base_cache_dir = st.text_input(
+                            localized_text("BAAI/bge-reranker-base Model Directory", "BAAI/bge-reranker-base 模型目录", "BAAI/bge-reranker-base 模型目錄"),
+                            value=get_config_value("reranker_base_cache_dir", ""),
+                            key="reranker_base_cache_dir_input",
+                            placeholder=os.path.join(default_root_for_form, "bge-reranker-base"),
+                            help=localized_text(
+                                "Cache directory for BAAI/bge-reranker-base.",
+                                "BAAI/bge-reranker-base 的缓存目录。",
+                                "BAAI/bge-reranker-base 的快取目錄。",
+                            ),
+                        )
+                        soffice_binary_path = st.text_input(
+                            localized_text("LibreOffice / soffice Path", "LibreOffice / soffice 路径", "LibreOffice / soffice 路徑"),
+                            value=get_configured_soffice_path(),
+                            key="soffice_binary_path_input",
+                            placeholder=localized_text(
+                                "Leave empty to auto-detect the system path",
+                                "留空则自动搜索系统路径",
+                                "留空則自動搜尋系統路徑",
+                            ),
+                            help=localized_text(
+                                "LibreOffice is not a model. Configure the soffice executable file or installation directory here.",
+                                "LibreOffice 不是模型，这里配置的是 soffice 可执行文件或安装目录。",
+                                "LibreOffice 不是模型，這裡配置的是 soffice 可執行文件或安裝目錄。",
+                            ),
+                        )
+
+                    path_col_save, path_col_reset = st.columns([1, 1])
+                    with path_col_save:
+                        save_model_paths = st.form_submit_button(
+                            localized_text("Save Model Settings", "保存模型配置", "保存模型配置"),
+                            type="primary",
+                        )
+                    with path_col_reset:
+                        reset_model_paths = st.form_submit_button(localized_text("Restore Defaults", "恢复默认配置", "恢復預設配置"))
+
+                if save_model_paths:
+                    try:
+                        if not confirm_embedding_switch:
+                            raise ValueError(
+                                localized_text(
+                                    "Please confirm that switching the embedding model changes the active vector collection.",
+                                    "请先确认已了解切换向量模型会改变当前使用的向量库 Collection。",
+                                    "請先確認已了解切換向量模型會改變目前使用的向量庫 Collection。",
+                                )
+                            )
+                        save_model_cache_config(
+                            model_cache_root,
+                            paddleocr_cache_dir,
+                            bge_cache_dir,
+                            bge_base_cache_dir,
+                            reranker_cache_dir,
+                            reranker_base_cache_dir,
+                            soffice_binary_path,
+                            selected_embedding_model,
+                            selected_reranker_model,
+                        )
+                        if soffice_binary_path and not find_soffice_binary():
+                            st.warning(
+                                localized_text(
+                                    "Model settings were saved, but the current LibreOffice / soffice path does not point to an executable file.",
+                                    "模型配置已保存，但当前 LibreOffice / soffice 路径未检测到可执行文件。",
+                                    "模型配置已保存，但當前 LibreOffice / soffice 路徑未檢測到可執行文件。",
+                                )
+                            )
+                        else:
+                            st.success(
+                                localized_text(
+                                    "Model settings saved. Loaded model and vector client caches were cleared; the next load will use the new settings.",
+                                    "模型配置已保存，已清理模型和向量客户端缓存；下次加载会使用新配置。",
+                                    "模型配置已保存，已清理模型和向量客戶端快取；下次載入會使用新配置。",
+                                )
+                            )
+                        st.rerun()
+                    except Exception as e:
+                        st.error(localized_text(f"Failed to save model settings: {e}", f"保存模型配置失败：{e}", f"保存模型配置失敗：{e}"))
+
+                if reset_model_paths:
+                    try:
+                        save_model_cache_config(
+                            DEFAULT_MODEL_CACHE_ROOT,
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            DEFAULT_SOFFICE_BINARY_PATH,
+                            EMBEDDING_MODEL_NAME,
+                            RERANKER_MODEL_NAME,
+                        )
+                        st.success(localized_text("Default model settings restored.", "已恢复默认模型配置。", "已恢復預設模型配置。"))
+                        st.rerun()
+                    except Exception as e:
+                        st.error(localized_text(f"Failed to restore default model settings: {e}", f"恢复默认模型配置失败：{e}", f"恢復預設模型配置失敗：{e}"))
+
+                current_download_config = get_model_download_config()
+                with st.expander(localized_text("Current Paths", "当前路径", "當前路徑"), expanded=False):
+                    st.json(
+                        {
+                            "embedding_model": get_embedding_model_name(),
+                            "embedding_vector_size": get_embedding_vector_size(),
+                            "active_collection": get_active_collection_name(),
+                            "reranker_model": get_reranker_model_name(),
+                            "model_cache_root": get_model_cache_root(),
+                            "paddleocr_cache_dir": get_paddleocr_cache_dir(),
+                            "bge_m3_cache_dir": get_embedding_cache_dir_for_model("BAAI/bge-m3"),
+                            "bge_base_zh_v15_cache_dir": get_embedding_cache_dir_for_model("BAAI/bge-base-zh-v1.5"),
+                            "bge_reranker_v2_m3_cache_dir": get_reranker_cache_dir_for_model("BAAI/bge-reranker-v2-m3"),
+                            "bge_reranker_base_cache_dir": get_reranker_cache_dir_for_model("BAAI/bge-reranker-base"),
+                            "huggingface_download_source": current_download_config["source_label"],
+                            "huggingface_endpoint": current_download_config["hf_endpoint"],
+                            "paddleocr_model_source": current_download_config["paddleocr_source_label"],
+                            "paddleocr_huggingface_endpoint": current_download_config["paddleocr_hf_endpoint"],
+                            "libreoffice_install_source": current_download_config["libreoffice_install_source_label"],
+                            "custom_libreoffice_install_command": current_download_config["custom_libreoffice_install_command"],
+                            "soffice_binary_path": get_configured_soffice_path() or localized_text("Auto-detect system path", "自动搜索系统路径", "自動搜尋系統路徑"),
+                            "detected_soffice": find_soffice_binary() or localized_text("Not detected", "未检测到", "未檢測到"),
+                        }
                     )
 
     with config_qdrant_tab:
@@ -477,7 +588,9 @@ def render_settings_tab() -> None:
                         "local_path": masked_qdrant["local_path"],
                         "url": masked_qdrant["url"],
                         "api_key": masked_qdrant["api_key"],
-                        "collection": COLLECTION_NAME,
+                        "active_collection": get_active_collection_name(),
+                        "embedding_model": get_embedding_model_name(),
+                        "embedding_vector_size": get_embedding_vector_size(),
                     }
                 )
 
@@ -560,12 +673,117 @@ def render_settings_tab() -> None:
                 except Exception as e:
                     st.error(localized_text(f"Migration failed: {e}", f"迁移失败：{e}", f"遷移失敗：{e}"))
 
+        with st.container(border=True):
+            st.markdown(localized_text("#### Embedding Model Conversion", "#### 向量库模型转换", "#### 向量庫模型轉換"))
+            st.caption(
+                localized_text(
+                    "Convert stored chunk text between supported embedding collections by re-embedding. It works with Local and HTTP/Docker Qdrant, and does not run OCR again.",
+                    "通过重新向量化已保存的 chunk 文本，在受支持的 embedding collection 之间转换。支持本地和 HTTP/Docker Qdrant，不会重新 OCR。",
+                    "透過重新向量化已保存的 chunk 文字，在受支援的 embedding collection 之間轉換。支援本地和 HTTP/Docker Qdrant，不會重新 OCR。",
+                )
+            )
+            conversion_model_names = list(EMBEDDING_MODEL_OPTIONS.keys())
+            conversion_model_labels = [get_embedding_model_label(model_name) for model_name in conversion_model_names]
+            conv_col1, conv_col2 = st.columns(2)
+            with conv_col1:
+                source_conversion_label = st.selectbox(
+                    localized_text("Source Embedding Model", "来源向量模型", "來源向量模型"),
+                    conversion_model_labels,
+                    index=conversion_model_names.index("BAAI/bge-m3"),
+                    key="conversion_source_embedding_model",
+                    help=localized_text(
+                        "The collection created by this model will be read as the source.",
+                        "读取该模型对应的 Collection 作为转换来源。",
+                        "讀取該模型對應的 Collection 作為轉換來源。",
+                    ),
+                )
+                source_conversion_model = conversion_model_names[conversion_model_labels.index(source_conversion_label)]
+                recreate_target_collection = st.checkbox(
+                    localized_text("Recreate Target Collection Before Conversion", "转换前重建目标 Collection", "轉換前重建目標 Collection"),
+                    value=False,
+                    key="conversion_recreate_target_collection",
+                    help=localized_text(
+                        "Enable only when the target collection can be overwritten.",
+                        "只有确认目标 Collection 可以覆盖时才勾选。",
+                        "只有確認目標 Collection 可以覆蓋時才勾選。",
+                    ),
+                )
+            with conv_col2:
+                target_default_index = 1 if len(conversion_model_names) > 1 else 0
+                target_conversion_label = st.selectbox(
+                    localized_text("Target Embedding Model", "目标向量模型", "目標向量模型"),
+                    conversion_model_labels,
+                    index=target_default_index,
+                    key="conversion_target_embedding_model",
+                    help=localized_text(
+                        "The app writes converted vectors into the collection matched to this model's dimension.",
+                        "转换后的向量会写入目标模型维度匹配的 Collection。",
+                        "轉換後的向量會寫入目標模型維度匹配的 Collection。",
+                    ),
+                )
+                target_conversion_model = conversion_model_names[conversion_model_labels.index(target_conversion_label)]
+                conversion_batch_size = st.number_input(
+                    localized_text("Conversion Batch Size", "转换批大小", "轉換批大小"),
+                    min_value=1,
+                    max_value=64,
+                    value=16,
+                    step=1,
+                    key="conversion_batch_size",
+                    help=localized_text(
+                        "Smaller batches use less memory; larger batches may be faster.",
+                        "批量越小越省内存，批量越大可能越快。",
+                        "批次越小越省記憶體，批次越大可能越快。",
+                    ),
+                )
+
+            st.info(
+                localized_text(
+                    f"Source collection: {get_collection_name_for_embedding_model(source_conversion_model)} ({get_embedding_vector_size(source_conversion_model)} dimensions). Target collection: {get_collection_name_for_embedding_model(target_conversion_model)} ({get_embedding_vector_size(target_conversion_model)} dimensions).",
+                    f"来源 Collection：{get_collection_name_for_embedding_model(source_conversion_model)}（{get_embedding_vector_size(source_conversion_model)} 维）。目标 Collection：{get_collection_name_for_embedding_model(target_conversion_model)}（{get_embedding_vector_size(target_conversion_model)} 维）。",
+                    f"來源 Collection：{get_collection_name_for_embedding_model(source_conversion_model)}（{get_embedding_vector_size(source_conversion_model)} 維）。目標 Collection：{get_collection_name_for_embedding_model(target_conversion_model)}（{get_embedding_vector_size(target_conversion_model)} 維）。",
+                )
+            )
+            if source_conversion_model == target_conversion_model:
+                st.warning(localized_text("Choose different source and target models.", "请选择不同的来源和目标模型。", "請選擇不同的來源和目標模型。"))
+            if st.button(
+                localized_text("Start Embedding Conversion", "开始向量库转换", "開始向量庫轉換"),
+                key="start_embedding_conversion",
+                disabled=source_conversion_model == target_conversion_model,
+                type="primary",
+            ):
+                progress_box = st.empty()
+                try:
+                    converted = convert_vector_collection_embeddings(
+                        source_model_name=source_conversion_model,
+                        target_model_name=target_conversion_model,
+                        recreate_target=recreate_target_collection,
+                        batch_size=int(conversion_batch_size),
+                        progress_callback=lambda count: progress_box.info(
+                            localized_text(
+                                f"Converted {count} chunks...",
+                                f"已转换 {count} 个 chunk...",
+                                f"已轉換 {count} 個 chunk...",
+                            )
+                        ),
+                    )
+                    get_file_summary_rows.clear()
+                    get_cached_library_counts.clear()
+                    st.success(
+                        localized_text(
+                            f"Conversion completed. Converted {converted} chunks.",
+                            f"转换完成，已转换 {converted} 个 chunk。",
+                            f"轉換完成，已轉換 {converted} 個 chunk。",
+                        )
+                    )
+                except Exception as e:
+                    st.error(localized_text(f"Conversion failed: {e}", f"转换失败：{e}", f"轉換失敗：{e}"))
+
     with config_llm_tab:
         current_config = get_llm_config()
         with st.form("llm_config_form"):
             endpoint_col, mode_col = st.columns([1, 1])
             with endpoint_col:
-                st.markdown("#### 接口")
+                st.markdown(localized_text("#### Endpoint", "#### 接口", "#### 接口"))
                 api_type_labels = list(LLM_API_TYPE_OPTIONS.keys())
                 current_api_type = current_config.get("api_type", DEFAULT_LLM_API_TYPE)
                 current_api_type_label = next(
@@ -573,7 +791,7 @@ def render_settings_tab() -> None:
                     "自动识别",
                 )
                 api_type_label = st.selectbox(
-                    "接口类型",
+                    localized_text("API Type", "接口类型", "接口類型"),
                     api_type_labels,
                     index=api_type_labels.index(current_api_type_label),
                     key="llm_api_type_label",
@@ -585,7 +803,7 @@ def render_settings_tab() -> None:
                 )
                 api_type = LLM_API_TYPE_OPTIONS[api_type_label]
                 base_url = st.text_input(
-                    "大模型接口 Base URL",
+                    localized_text("LLM Base URL", "大模型接口 Base URL", "大模型接口 Base URL"),
                     value=current_config["base_url"],
                     placeholder=localized_text("Example: http://127.0.0.1:27292/v1", "例如：http://127.0.0.1:27292/v1", "例如：http://127.0.0.1:27292/v1"),
                 )
@@ -599,7 +817,7 @@ def render_settings_tab() -> None:
                     ),
                 )
                 model = st.text_input(
-                    "默认模型名称",
+                    localized_text("Default Model Name", "默认模型名称", "預設模型名稱"),
                     value=current_config["model"],
                     placeholder=localized_text(
                         "Enter the actual model name shown by OLMX / Ollama / LM Studio",
@@ -608,9 +826,9 @@ def render_settings_tab() -> None:
                     ),
                 )
             with mode_col:
-                st.markdown("#### 模式")
+                st.markdown(localized_text("#### Modes", "#### 模式", "#### 模式"))
                 fast_model = st.text_input(
-                    "快速模式模型名",
+                    localized_text("Fast Mode Model", "快速模式模型名", "快速模式模型名"),
                     value=current_config.get("fast_model", current_config["model"]),
                     placeholder=localized_text(
                         "Leave empty to use the default model name",
@@ -619,7 +837,7 @@ def render_settings_tab() -> None:
                     ),
                 )
                 thinking_model = st.text_input(
-                    "思考模式模型名",
+                    localized_text("Thinking Mode Model", "思考模式模型名", "思考模式模型名"),
                     value=current_config.get("thinking_model", current_config["model"]),
                     placeholder=localized_text(
                         "If the backend uses a separate thinking model, enter its name here",
@@ -638,7 +856,7 @@ def render_settings_tab() -> None:
             extra_col1, extra_col2 = st.columns(2)
             with extra_col1:
                 fast_extra_body = st.text_area(
-                    "快速模式 extra_body JSON",
+                    localized_text("Fast Mode extra_body JSON", "快速模式 extra_body JSON", "快速模式 extra_body JSON"),
                     value=current_config.get("fast_extra_body", DEFAULT_LLM_EXTRA_BODY),
                     height=90,
                     placeholder=localized_text(
@@ -649,7 +867,7 @@ def render_settings_tab() -> None:
                 )
             with extra_col2:
                 thinking_extra_body = st.text_area(
-                    "思考模式 extra_body JSON",
+                    localized_text("Thinking Mode extra_body JSON", "思考模式 extra_body JSON", "思考模式 extra_body JSON"),
                     value=current_config.get("thinking_extra_body", DEFAULT_LLM_EXTRA_BODY),
                     height=90,
                     placeholder=localized_text(
@@ -661,9 +879,9 @@ def render_settings_tab() -> None:
 
             col_save, col_reset = st.columns([1, 1])
             with col_save:
-                save_config = st.form_submit_button("保存配置", type="primary")
+                save_config = st.form_submit_button(localized_text("Save Settings", "保存配置", "保存配置"), type="primary")
             with col_reset:
-                reset_config = st.form_submit_button("恢复默认值")
+                reset_config = st.form_submit_button(localized_text("Restore Defaults", "恢复默认值", "恢復預設值"))
 
         if save_config:
             try:
@@ -712,7 +930,7 @@ def render_settings_tab() -> None:
             if saved_config_test_mode not in config_test_mode_options:
                 saved_config_test_mode = "快速"
             test_mode_label = st.radio(
-                "测试模式",
+                localized_text("Test Mode", "测试模式", "測試模式"),
                 config_test_mode_options,
                 index=config_test_mode_options.index(saved_config_test_mode),
                 horizontal=True,
@@ -720,8 +938,8 @@ def render_settings_tab() -> None:
             )
             set_config_value("config_test_mode_label", test_mode_label)
             test_mode = LLM_MODE_OPTIONS[test_mode_label]
-            if st.button("测试当前配置", key="test_config_llm"):
-                with st.status("正在测试本地大模型接口...", expanded=True) as status:
+            if st.button(localized_text("Test Current Settings", "测试当前配置", "測試當前配置"), key="test_config_llm"):
+                with st.status(localized_text("Testing local LLM endpoint...", "正在测试本地大模型接口...", "正在測試本地大模型接口..."), expanded=True) as status:
                     try:
                         test_model, test_extra_body = get_llm_mode_config(test_mode)
                         st.write(localized_text("Endpoint: ", "接口地址：", "接口地址：") + active_config["base_url"])
@@ -745,7 +963,7 @@ def render_settings_tab() -> None:
                         )
                         st.error(localized_text(f"Endpoint test failed: {e}", f"接口测试失败：{e}", f"接口測試失敗：{e}"))
         with active_col:
-            with st.expander("当前生效配置", expanded=False):
+            with st.expander(localized_text("Current Effective Settings", "当前生效配置", "當前生效配置"), expanded=False):
                 st.json(
                     {
                         "api_type": active_config.get("api_type", DEFAULT_LLM_API_TYPE),
@@ -761,7 +979,7 @@ def render_settings_tab() -> None:
 
     with config_reset_tab:
         with st.container(border=True):
-            st.markdown("#### 初始化可配置数据")
+            st.markdown(localized_text("#### Reset Configurable Data", "#### 初始化可配置数据", "#### 初始化可配置資料"))
             st.warning(
                 localized_text(
                     "This clears model settings, UI settings, and all chat history. It does not delete the Qdrant library, uploaded files, or ingested vectors.",
@@ -769,8 +987,15 @@ def render_settings_tab() -> None:
                     "這裡會清空模型配置、介面設定和所有歷史會話；不會刪除 Qdrant 文件庫、上傳文件和已入庫向量。",
                 )
             )
-            confirm_reset = st.checkbox("我确认要初始化可配置数据和历史会话", key="confirm_reset_app_state")
-            if st.button("初始化可配置数据", type="primary", disabled=not confirm_reset):
+            confirm_reset = st.checkbox(
+                localized_text(
+                    "I confirm resetting configurable data and chat history.",
+                    "我确认要初始化可配置数据和历史会话。",
+                    "我確認要初始化可配置資料和歷史會話。",
+                ),
+                key="confirm_reset_app_state",
+            )
+            if st.button(localized_text("Reset Configurable Data", "初始化可配置数据", "初始化可配置資料"), type="primary", disabled=not confirm_reset):
                 reset_app_state_database()
                 st.session_state["app_reset_notice"] = localized_text(
                     "Settings and chat history have been reset.",

@@ -24,7 +24,7 @@ def format_file_size(size_bytes: int) -> str:
 
 def render_library_tab() -> None:
     st.subheader(localized_text("Document Library", "文档库管理", "文件庫管理"))
-    st.write(translate_text("当前 Qdrant Collection："), COLLECTION_NAME)
+    st.write(translate_text("当前 Qdrant Collection："), get_active_collection_name())
     render_library_summary()
     library_notice = st.session_state.pop("library_notice", "")
     if library_notice:
@@ -143,12 +143,68 @@ def render_library_tab() -> None:
                 "當備份 ZIP 過大、不適合瀏覽器上傳時，可填寫本機文件路徑。",
             ),
         )
+        backup_source = backup_file
+        local_backup_path_value = normalize_local_path(local_backup_path.strip(), "") if local_backup_path.strip() else ""
+        if local_backup_path_value:
+            backup_source = local_backup_path_value
+
+        backup_inspection = None
+        backup_inspection_error = ""
+        if backup_file or (local_backup_path_value and os.path.isfile(local_backup_path_value)):
+            try:
+                backup_inspection = inspect_vector_library_backup(backup_source)
+            except Exception as e:
+                backup_inspection_error = str(e)
+        elif local_backup_path_value:
+            backup_inspection_error = localized_text(
+                f"Backup path was not found: {local_backup_path_value}",
+                f"未找到备份路径：{local_backup_path_value}",
+                f"未找到備份路徑：{local_backup_path_value}",
+            )
+
+        backup_mismatch = False
+        if backup_inspection:
+            backup_mismatch = not (
+                backup_inspection.get("matches_active_model") and backup_inspection.get("matches_active_dimension")
+            )
+            st.json(
+                {
+                    "backup_embedding_model": backup_inspection.get("embedding_model") or localized_text("Unknown", "未知", "未知"),
+                    "backup_vector_size": backup_inspection.get("vector_size"),
+                    "backup_collection": backup_inspection.get("collection_name"),
+                    "current_embedding_model": get_embedding_model_name(),
+                    "current_vector_size": get_embedding_vector_size(),
+                    "current_collection": get_active_collection_name(),
+                },
+                expanded=False,
+            )
+            if backup_mismatch:
+                st.warning(
+                    localized_text(
+                        "The backup embedding model or vector dimension does not match the current settings. You can switch to the matching embedding model in Settings > Models And Paths, import a matching backup, or import first and then use Settings > Vector Store to convert embeddings.",
+                        "备份的向量模型或维度与当前设置不一致。你可以在“配置中心 > 模型与路径”切换到匹配模型，导入匹配备份，或先导入后在“配置中心 > 向量库连接”执行向量库模型转换。",
+                        "備份的向量模型或維度與目前設定不一致。你可以在「配置中心 > 模型與路徑」切換到匹配模型，導入匹配備份，或先導入後在「配置中心 > 向量庫連線」執行向量庫模型轉換。",
+                    )
+                )
+        elif backup_inspection_error:
+            st.warning(backup_inspection_error)
+
         confirm_restore = st.checkbox(localized_text("I confirm importing backup and overwriting the current library", "我确认导入备份并覆盖当前文档库", "我確認導入備份並覆蓋當前文件庫"), key="confirm_restore_backup")
-        restore_ready = bool(backup_file or local_backup_path.strip()) and confirm_restore
+        confirm_mismatch_restore = True
+        if backup_mismatch:
+            confirm_mismatch_restore = st.checkbox(
+                localized_text(
+                    "I understand the backup model does not match the current embedding setting.",
+                    "我已了解备份模型与当前向量模型设置不一致。",
+                    "我已了解備份模型與目前向量模型設定不一致。",
+                ),
+                key="confirm_mismatch_restore_backup",
+            )
+        restore_ready = bool(backup_file or local_backup_path_value) and confirm_restore and confirm_mismatch_restore and not bool(backup_inspection_error)
         if st.button(localized_text("Import And Overwrite Current Library", "导入并覆盖当前文档库", "導入並覆蓋當前文件庫"), disabled=not restore_ready, key="restore_vector_backup"):
             try:
-                if local_backup_path.strip():
-                    message = restore_vector_library_backup_from_path(local_backup_path)
+                if local_backup_path_value:
+                    message = restore_vector_library_backup_from_path(local_backup_path_value)
                 else:
                     message = restore_vector_library_backup(backup_file)
                 get_file_summary_rows.clear()

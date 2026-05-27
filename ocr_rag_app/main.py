@@ -20,9 +20,9 @@ def run_app() -> None:
     render_global_styles()
     st.title(
         localized_text(
-            "OCR + BGE-M3 + Qdrant + Local LLM",
-            "OCR + BGE-M3 + Qdrant + 本地大模型",
-            "OCR + BGE-M3 + Qdrant + 本地大模型",
+            "OCR + BGE + Qdrant + Local LLM",
+            "OCR + BGE + Qdrant + 本地大模型",
+            "OCR + BGE + Qdrant + 本地大模型",
         )
     )
     st.caption(

@@ -267,7 +267,7 @@ def render_upload_tab() -> None:
         }
 
         auto_unload_models_after_ingest = st.checkbox(
-            "入库完成后自动释放 OCR / BGE-M3 模型缓存",
+            localized_text("Release OCR / Embedding Model Cache After Ingestion", "入库完成后自动释放 OCR / 向量模型缓存", "入庫完成後自動釋放 OCR / 向量模型快取"),
             value=get_bool_config("auto_unload_models_after_ingest", False),
             key="auto_unload_models_after_ingest",
             help=localized_text(
@@ -443,7 +443,7 @@ def render_upload_tab() -> None:
             ):
                 render_result_dataframe(unsupported_upload_rows, max_rows=200)
 
-        if st.button("开始导入文件", type="primary", key="upload_ingest"):
+        if st.button(localized_text("Start Import", "开始导入文件", "開始導入文件"), type="primary", key="upload_ingest"):
             has_legacy_office = any(is_legacy_office_file(get_uploaded_relative_name(item)) for item in uploaded_files)
             needs_presentation_rasterizer = ppt_visual_ocr and any(
                 get_file_extension_from_name(get_uploaded_relative_name(item)) in {"ppt", "pptx"}
@@ -788,7 +788,7 @@ def render_upload_tab() -> None:
                 load_ocr_model.clear()
                 load_embedding_model.clear()
                 release_memory_after_file()
-                st.info(localized_text("OCR / BGE-M3 model cache was released as configured.", "已按设置释放 OCR / BGE-M3 模型缓存。", "已按設定釋放 OCR / BGE-M3 模型快取。"))
+                st.info(localized_text("OCR / embedding model cache was released as configured.", "已按设置释放 OCR / 向量模型缓存。", "已按設定釋放 OCR / 向量模型快取。"))
 
             if success_rows:
                 st.success(localized_text(f"Successfully ingested {len(success_rows)} files.", f"成功入库 {len(success_rows)} 个文件。", f"成功入庫 {len(success_rows)} 個文件。"))

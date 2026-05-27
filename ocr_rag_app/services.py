@@ -65,19 +65,65 @@ BACKUP_DIR = "backups"
 BACKUP_MANIFEST_NAME = "manifest.json"
 BACKUP_INGESTED_FILES_NAME = "ingested_files.json"
 COLLECTION_NAME = "ocr_rag_docs"
-VECTOR_SIZE = 1024
 DEFAULT_QDRANT_MODE = "local"
 DEFAULT_QDRANT_LOCAL_PATH = QDRANT_DIR
 DEFAULT_QDRANT_URL = "http://127.0.0.1:6333"
 DEFAULT_QDRANT_API_KEY = ""
 EMBEDDING_MODEL_NAME = "BAAI/bge-m3"
 RERANKER_MODEL_NAME = "BAAI/bge-reranker-v2-m3"
+EMBEDDING_MODEL_OPTIONS = {
+    "BAAI/bge-m3": {
+        "vector_size": 1024,
+        "collection_name": COLLECTION_NAME,
+        "cache_key": "bge_cache_dir",
+        "default_cache_dir_name": "bge-m3",
+        "label": {
+            "en": "BAAI/bge-m3 (1024 dimensions, multilingual)",
+            "zh_CN": "BAAI/bge-m3（1024 维，多语言）",
+            "zh_TW": "BAAI/bge-m3（1024 維，多語言）",
+        },
+    },
+    "BAAI/bge-base-zh-v1.5": {
+        "vector_size": 768,
+        "collection_name": "ocr_rag_docs_bge_base_zh_v15",
+        "cache_key": "bge_base_cache_dir",
+        "default_cache_dir_name": "bge-base-zh-v1.5",
+        "label": {
+            "en": "BAAI/bge-base-zh-v1.5 (768 dimensions, Chinese)",
+            "zh_CN": "BAAI/bge-base-zh-v1.5（768 维，中文）",
+            "zh_TW": "BAAI/bge-base-zh-v1.5（768 維，中文）",
+        },
+    },
+}
+RERANKER_MODEL_OPTIONS = {
+    "BAAI/bge-reranker-v2-m3": {
+        "cache_key": "reranker_cache_dir",
+        "default_cache_dir_name": "bge-reranker-v2-m3",
+        "label": {
+            "en": "BAAI/bge-reranker-v2-m3",
+            "zh_CN": "BAAI/bge-reranker-v2-m3",
+            "zh_TW": "BAAI/bge-reranker-v2-m3",
+        },
+    },
+    "BAAI/bge-reranker-base": {
+        "cache_key": "reranker_base_cache_dir",
+        "default_cache_dir_name": "bge-reranker-base",
+        "label": {
+            "en": "BAAI/bge-reranker-base",
+            "zh_CN": "BAAI/bge-reranker-base",
+            "zh_TW": "BAAI/bge-reranker-base",
+        },
+    },
+}
+VECTOR_SIZE = EMBEDDING_MODEL_OPTIONS[EMBEDDING_MODEL_NAME]["vector_size"]
 EXTRACTED_IMAGE_DIR = os.path.join(UPLOAD_DIR, "extracted_images")
 CONVERTED_DIR = os.path.join(UPLOAD_DIR, "converted")
 DEFAULT_MODEL_CACHE_ROOT = os.path.abspath("model_cache")
 DEFAULT_PADDLEOCR_CACHE_DIR = os.path.join(DEFAULT_MODEL_CACHE_ROOT, "paddlex")
 DEFAULT_BGE_CACHE_DIR = os.path.join(DEFAULT_MODEL_CACHE_ROOT, "bge-m3")
+DEFAULT_BGE_BASE_CACHE_DIR = os.path.join(DEFAULT_MODEL_CACHE_ROOT, "bge-base-zh-v1.5")
 DEFAULT_RERANKER_CACHE_DIR = os.path.join(DEFAULT_MODEL_CACHE_ROOT, "bge-reranker-v2-m3")
+DEFAULT_RERANKER_BASE_CACHE_DIR = os.path.join(DEFAULT_MODEL_CACHE_ROOT, "bge-reranker-base")
 DEFAULT_SOFFICE_BINARY_PATH = ""
 DEFAULT_MODEL_DOWNLOAD_SOURCE = "huggingface"
 DEFAULT_CUSTOM_HF_ENDPOINT = ""
@@ -567,8 +613,8 @@ LANGUAGE_LABEL_BY_CODE = {value: key for key, value in LANGUAGE_OPTIONS.items()}
 
 TRANSLATIONS = {
     "OCR + BGE-M3 + Qdrant + 本地大模型": {
-        "en": "OCR + BGE-M3 + Qdrant + Local LLM",
-        "zh_TW": "OCR + BGE-M3 + Qdrant + 本地大模型",
+        "en": "OCR + BGE + Qdrant + Local LLM",
+        "zh_TW": "OCR + BGE + Qdrant + 本地大模型",
     },
     "上传制度、监管要求和企业资料，解析后写入 Qdrant 向量库，再调用 OpenAI 兼容接口做问答和合规差距分析。": {
         "en": "Upload policies, regulatory requirements, and enterprise materials; parse them into Qdrant, then answer questions and analyze compliance through an OpenAI-compatible local LLM endpoint.",
@@ -593,7 +639,7 @@ TRANSLATIONS = {
     "其他资料": {"en": "Other Materials", "zh_TW": "其他資料"},
     "资料名称 / 备注": {"en": "Document Name / Note", "zh_TW": "資料名稱 / 備註"},
     "启用 Office 内嵌图片 OCR": {"en": "Enable OCR For Office Embedded Images", "zh_TW": "啟用 Office 內嵌圖片 OCR"},
-    "入库完成后自动释放 OCR / BGE-M3 模型缓存": {"en": "Release OCR / BGE-M3 Model Cache After Ingestion", "zh_TW": "入庫完成後自動釋放 OCR / BGE-M3 模型快取"},
+    "入库完成后自动释放 OCR / BGE-M3 模型缓存": {"en": "Release OCR / Embedding Model Cache After Ingestion", "zh_TW": "入庫完成後自動釋放 OCR / 向量模型快取"},
     "同名文件变更时替换旧版本": {"en": "Replace Old Version When Same-Name File Changes", "zh_TW": "同名文件變更時替換舊版本"},
     "后台入库队列": {"en": "Background Ingestion Queue", "zh_TW": "後台入庫隊列"},
     "将 PPT/PPTX 栅格化后 OCR": {"en": "Rasterize PPT/PPTX Then OCR", "zh_TW": "將 PPT/PPTX 柵格化後 OCR"},
@@ -689,9 +735,9 @@ TRANSLATIONS = {
     "模型状态 / 下载查询": {"en": "Model Status / Download Check", "zh_TW": "模型狀態 / 下載查詢"},
     "操作": {"en": "Actions", "zh_TW": "操作"},
     "内存管理": {"en": "Memory Management", "zh_TW": "記憶體管理"},
-    "释放 OCR / BGE-M3 / Reranker 模型缓存": {"en": "Release OCR / BGE-M3 / Reranker Cache", "zh_TW": "釋放 OCR / BGE-M3 / Reranker 模型快取"},
+    "释放 OCR / BGE-M3 / Reranker 模型缓存": {"en": "Release OCR / Embedding / Reranker Cache", "zh_TW": "釋放 OCR / 向量模型 / Reranker 快取"},
     "预加载 PaddleOCR": {"en": "Preload PaddleOCR", "zh_TW": "預載 PaddleOCR"},
-    "预加载 BGE-M3": {"en": "Preload BGE-M3", "zh_TW": "預載 BGE-M3"},
+    "预加载 BGE-M3": {"en": "Preload Embedding Model", "zh_TW": "預載向量模型"},
     "预加载 Reranker": {"en": "Preload Reranker", "zh_TW": "預載 Reranker"},
     "Office 老格式转换": {"en": "Legacy Office Conversion", "zh_TW": "Office 舊格式轉換"},
     "测试 LibreOffice": {"en": "Test LibreOffice", "zh_TW": "測試 LibreOffice"},
@@ -910,7 +956,7 @@ TRANSLATIONS = {
     "正在检索并生成合规分析...": {"en": "Retrieving and generating compliance analysis...", "zh_TW": "正在檢索並生成合規分析..."},
     "正在测试本地大模型接口...": {"en": "Testing local LLM endpoint...", "zh_TW": "正在測試本地大模型接口..."},
     "正在加载 PaddleOCR...": {"en": "Loading PaddleOCR...", "zh_TW": "正在載入 PaddleOCR..."},
-    "正在加载 BGE-M3...": {"en": "Loading BGE-M3...", "zh_TW": "正在載入 BGE-M3..."},
+    "正在加载 BGE-M3...": {"en": "Loading embedding model...", "zh_TW": "正在載入向量模型..."},
     "正在加载 Reranker...": {"en": "Loading Reranker...", "zh_TW": "正在載入 Reranker..."},
     "正在测试 LibreOffice...": {"en": "Testing LibreOffice...", "zh_TW": "正在測試 LibreOffice..."},
     "正在自动安装 LibreOffice...": {"en": "Automatically installing LibreOffice...", "zh_TW": "正在自動安裝 LibreOffice..."},
@@ -1946,9 +1992,13 @@ def reset_app_state_database() -> None:
     set_bool_config("compliance_use_reranker", DEFAULT_USE_RERANKER)
     set_config_value("compliance_fetch_k", DEFAULT_RETRIEVAL_FETCH_K)
     set_config_value("model_cache_root", DEFAULT_MODEL_CACHE_ROOT)
+    set_config_value("embedding_model_name", EMBEDDING_MODEL_NAME)
+    set_config_value("reranker_model_name", RERANKER_MODEL_NAME)
     set_config_value("paddleocr_cache_dir", "")
     set_config_value("bge_cache_dir", "")
+    set_config_value("bge_base_cache_dir", "")
     set_config_value("reranker_cache_dir", "")
+    set_config_value("reranker_base_cache_dir", "")
     set_config_value("soffice_binary_path", DEFAULT_SOFFICE_BINARY_PATH)
     set_config_value("model_download_source", DEFAULT_MODEL_DOWNLOAD_SOURCE)
     set_config_value("custom_hf_endpoint", DEFAULT_CUSTOM_HF_ENDPOINT)
@@ -2029,10 +2079,14 @@ def reset_app_state_database() -> None:
         "config_test_llm_mode_label",
         "llm_api_type_label",
         "config_paddleocr_model_label",
+        "embedding_model_name_select",
+        "reranker_model_name_select",
         "model_cache_root_input",
         "paddleocr_cache_dir_input",
         "bge_cache_dir_input",
+        "bge_base_cache_dir_input",
         "reranker_cache_dir_input",
+        "reranker_base_cache_dir_input",
         "soffice_binary_path_input",
         "model_download_source_select",
         "custom_hf_endpoint_input",
@@ -2053,19 +2107,79 @@ def get_model_cache_root() -> str:
     return normalize_local_path(get_config_value("model_cache_root", DEFAULT_MODEL_CACHE_ROOT), DEFAULT_MODEL_CACHE_ROOT)
 
 
+def get_embedding_model_name() -> str:
+    model_name = get_config_value("embedding_model_name", EMBEDDING_MODEL_NAME)
+    return model_name if model_name in EMBEDDING_MODEL_OPTIONS else EMBEDDING_MODEL_NAME
+
+
+def get_reranker_model_name() -> str:
+    model_name = get_config_value("reranker_model_name", RERANKER_MODEL_NAME)
+    return model_name if model_name in RERANKER_MODEL_OPTIONS else RERANKER_MODEL_NAME
+
+
+def get_embedding_model_label(model_name: Optional[str] = None) -> str:
+    model_name = model_name or get_embedding_model_name()
+    option = EMBEDDING_MODEL_OPTIONS.get(model_name, EMBEDDING_MODEL_OPTIONS[EMBEDDING_MODEL_NAME])
+    return localized_text(option["label"]["en"], option["label"]["zh_CN"], option["label"]["zh_TW"])
+
+
+def get_reranker_model_label(model_name: Optional[str] = None) -> str:
+    model_name = model_name or get_reranker_model_name()
+    option = RERANKER_MODEL_OPTIONS.get(model_name, RERANKER_MODEL_OPTIONS[RERANKER_MODEL_NAME])
+    return localized_text(option["label"]["en"], option["label"]["zh_CN"], option["label"]["zh_TW"])
+
+
+def get_embedding_vector_size(model_name: Optional[str] = None) -> int:
+    model_name = model_name or get_embedding_model_name()
+    option = EMBEDDING_MODEL_OPTIONS.get(model_name, EMBEDDING_MODEL_OPTIONS[EMBEDDING_MODEL_NAME])
+    return int(option["vector_size"])
+
+
+def get_collection_name_for_embedding_model(model_name: Optional[str] = None) -> str:
+    model_name = model_name or get_embedding_model_name()
+    option = EMBEDDING_MODEL_OPTIONS.get(model_name, EMBEDDING_MODEL_OPTIONS[EMBEDDING_MODEL_NAME])
+    return str(option["collection_name"])
+
+
+def get_active_collection_name() -> str:
+    return get_collection_name_for_embedding_model(get_embedding_model_name())
+
+
+def get_default_cache_dir_for_embedding_model(model_name: str) -> str:
+    option = EMBEDDING_MODEL_OPTIONS.get(model_name, EMBEDDING_MODEL_OPTIONS[EMBEDDING_MODEL_NAME])
+    return os.path.join(get_model_cache_root(), option["default_cache_dir_name"])
+
+
+def get_default_cache_dir_for_reranker_model(model_name: str) -> str:
+    option = RERANKER_MODEL_OPTIONS.get(model_name, RERANKER_MODEL_OPTIONS[RERANKER_MODEL_NAME])
+    return os.path.join(get_model_cache_root(), option["default_cache_dir_name"])
+
+
+def get_embedding_cache_dir_for_model(model_name: Optional[str] = None) -> str:
+    model_name = model_name or get_embedding_model_name()
+    option = EMBEDDING_MODEL_OPTIONS.get(model_name, EMBEDDING_MODEL_OPTIONS[EMBEDDING_MODEL_NAME])
+    default_path = get_default_cache_dir_for_embedding_model(model_name)
+    return normalize_local_path(get_config_value(option["cache_key"], ""), default_path)
+
+
+def get_reranker_cache_dir_for_model(model_name: Optional[str] = None) -> str:
+    model_name = model_name or get_reranker_model_name()
+    option = RERANKER_MODEL_OPTIONS.get(model_name, RERANKER_MODEL_OPTIONS[RERANKER_MODEL_NAME])
+    default_path = get_default_cache_dir_for_reranker_model(model_name)
+    return normalize_local_path(get_config_value(option["cache_key"], ""), default_path)
+
+
 def get_paddleocr_cache_dir() -> str:
     default_path = os.path.join(get_model_cache_root(), "paddlex")
     return normalize_local_path(get_config_value("paddleocr_cache_dir", ""), default_path)
 
 
 def get_bge_cache_dir() -> str:
-    default_path = os.path.join(get_model_cache_root(), "bge-m3")
-    return normalize_local_path(get_config_value("bge_cache_dir", ""), default_path)
+    return get_embedding_cache_dir_for_model(get_embedding_model_name())
 
 
 def get_reranker_cache_dir() -> str:
-    default_path = os.path.join(get_model_cache_root(), "bge-reranker-v2-m3")
-    return normalize_local_path(get_config_value("reranker_cache_dir", ""), default_path)
+    return get_reranker_cache_dir_for_model(get_reranker_model_name())
 
 
 def get_configured_soffice_path() -> str:
@@ -2231,18 +2345,21 @@ def save_model_download_config(
         load_ocr_model.clear()
         load_embedding_model.clear()
         load_reranker_model.clear()
+        close_qdrant_singleton()
+        load_qdrant_client.clear()
     except Exception:
         pass
     release_memory_after_file()
 
 
 def ensure_model_cache_dirs() -> None:
-    for path in [
+    model_paths = [
         get_model_cache_root(),
         get_paddleocr_cache_dir(),
-        get_bge_cache_dir(),
-        get_reranker_cache_dir(),
-    ]:
+        *(get_embedding_cache_dir_for_model(model_name) for model_name in EMBEDDING_MODEL_OPTIONS),
+        *(get_reranker_cache_dir_for_model(model_name) for model_name in RERANKER_MODEL_OPTIONS),
+    ]
+    for path in model_paths:
         if path:
             os.makedirs(path, exist_ok=True)
 
@@ -2285,25 +2402,43 @@ def save_model_cache_config(
     model_cache_root: str,
     paddleocr_cache_dir: str,
     bge_cache_dir: str,
+    bge_base_cache_dir: str,
     reranker_cache_dir: str,
+    reranker_base_cache_dir: str,
     soffice_binary_path: str,
+    embedding_model_name: Optional[str] = None,
+    reranker_model_name: Optional[str] = None,
 ) -> None:
     model_cache_root = normalize_local_path(model_cache_root, DEFAULT_MODEL_CACHE_ROOT)
     paddleocr_cache_dir = normalize_local_path(paddleocr_cache_dir, "") if paddleocr_cache_dir.strip() else ""
     bge_cache_dir = normalize_local_path(bge_cache_dir, "") if bge_cache_dir.strip() else ""
+    bge_base_cache_dir = normalize_local_path(bge_base_cache_dir, "") if bge_base_cache_dir.strip() else ""
     reranker_cache_dir = normalize_local_path(reranker_cache_dir, "") if reranker_cache_dir.strip() else ""
+    reranker_base_cache_dir = normalize_local_path(reranker_base_cache_dir, "") if reranker_base_cache_dir.strip() else ""
     soffice_binary_path = normalize_local_path(soffice_binary_path, "")
+    embedding_model_name = embedding_model_name or get_embedding_model_name()
+    reranker_model_name = reranker_model_name or get_reranker_model_name()
+    if embedding_model_name not in EMBEDDING_MODEL_OPTIONS:
+        raise ValueError(localized_text("Unknown embedding model.", "未知文本向量化模型。", "未知文字向量化模型。"))
+    if reranker_model_name not in RERANKER_MODEL_OPTIONS:
+        raise ValueError(localized_text("Unknown reranker model.", "未知重排模型。", "未知重排模型。"))
 
     set_config_value("model_cache_root", model_cache_root)
+    set_config_value("embedding_model_name", embedding_model_name)
+    set_config_value("reranker_model_name", reranker_model_name)
     set_config_value("paddleocr_cache_dir", paddleocr_cache_dir)
     set_config_value("bge_cache_dir", bge_cache_dir)
+    set_config_value("bge_base_cache_dir", bge_base_cache_dir)
     set_config_value("reranker_cache_dir", reranker_cache_dir)
+    set_config_value("reranker_base_cache_dir", reranker_base_cache_dir)
     set_config_value("soffice_binary_path", soffice_binary_path)
     apply_model_cache_environment()
     try:
         load_ocr_model.clear()
         load_embedding_model.clear()
         load_reranker_model.clear()
+        close_qdrant_singleton()
+        load_qdrant_client.clear()
     except Exception:
         pass
     release_memory_after_file()
@@ -2336,32 +2471,40 @@ def save_paddleocr_model_label(label: str) -> None:
         release_memory_after_file()
 
 
-def is_bge_model_cached() -> bool:
+def is_embedding_model_cached(model_name: Optional[str] = None) -> bool:
+    model_name = model_name or get_embedding_model_name()
+    cache_dir = get_embedding_cache_dir_for_model(model_name)
     try:
-        if os.path.exists(os.path.join(get_bge_cache_dir(), "modules.json")):
+        if os.path.exists(os.path.join(cache_dir, "modules.json")):
             return True
         from huggingface_hub import try_to_load_from_cache
 
         cached_path = try_to_load_from_cache(
-            EMBEDDING_MODEL_NAME,
+            model_name,
             "modules.json",
-            cache_dir=get_bge_cache_dir(),
+            cache_dir=cache_dir,
         )
         return isinstance(cached_path, str) and os.path.exists(cached_path)
     except Exception:
         return False
 
 
-def is_reranker_model_cached() -> bool:
+def is_bge_model_cached() -> bool:
+    return is_embedding_model_cached(get_embedding_model_name())
+
+
+def is_reranker_model_cached(model_name: Optional[str] = None) -> bool:
+    model_name = model_name or get_reranker_model_name()
+    cache_dir = get_reranker_cache_dir_for_model(model_name)
     try:
-        if os.path.exists(os.path.join(get_reranker_cache_dir(), "config.json")):
+        if os.path.exists(os.path.join(cache_dir, "config.json")):
             return True
         from huggingface_hub import try_to_load_from_cache
 
         cached_path = try_to_load_from_cache(
-            RERANKER_MODEL_NAME,
+            model_name,
             "config.json",
-            cache_dir=get_reranker_cache_dir(),
+            cache_dir=cache_dir,
         )
         return isinstance(cached_path, str) and os.path.exists(cached_path)
     except Exception:
@@ -2441,27 +2584,55 @@ load_ocr_model.clear = clear_ocr_model_cache
 
 def load_embedding_model():
     """
-    BAAI/bge-m3 embedding 模型。
-    第一次运行会下载模型，速度取决于网络。
+    BGE embedding model selected in settings.
+    设置页选择的 BGE embedding 模型。
     """
-    cache_key = ("bge", get_bge_cache_dir(), get_active_hf_endpoint())
+    return load_embedding_model_for(get_embedding_model_name())
+
+
+def load_embedding_model_for(model_name: str):
+    """
+    Load a specific sentence-transformers embedding model.
+    加载指定的 sentence-transformers 向量模型。
+    """
+    model_name = model_name if model_name in EMBEDDING_MODEL_OPTIONS else EMBEDDING_MODEL_NAME
+    cache_dir = get_embedding_cache_dir_for_model(model_name)
+    cache_key = ("bge", model_name, cache_dir, get_active_hf_endpoint())
 
     def factory() -> Any:
         apply_model_download_environment()
         from sentence_transformers import SentenceTransformer
 
         model_source = (
-            get_bge_cache_dir()
-            if os.path.exists(os.path.join(get_bge_cache_dir(), "modules.json"))
-            else EMBEDDING_MODEL_NAME
+            cache_dir
+            if os.path.exists(os.path.join(cache_dir, "modules.json"))
+            else model_name
         )
         return SentenceTransformer(
             model_source,
-            cache_folder=get_bge_cache_dir(),
-            local_files_only=is_bge_model_cached(),
+            cache_folder=cache_dir,
+            local_files_only=is_embedding_model_cached(model_name),
         )
 
     return get_cached_model_resource(cache_key, factory)
+
+
+def embed_texts_with_model(texts: List[str], model_name: str) -> List[List[float]]:
+    """
+    Generate normalized vectors with a specific configured embedding model.
+    使用指定的配置模型生成归一化向量。
+    """
+    embedding_model = load_embedding_model_for(model_name)
+    embeddings = embedding_model.encode(
+        texts,
+        normalize_embeddings=True,
+        show_progress_bar=False,
+        batch_size=EMBEDDING_BATCH_SIZE,
+        convert_to_numpy=True,
+    )
+    if hasattr(embeddings, "tolist"):
+        return embeddings.tolist()
+    return [list(vector) for vector in embeddings]
 
 
 def clear_embedding_model_cache() -> None:
@@ -2472,22 +2643,24 @@ load_embedding_model.clear = clear_embedding_model_cache
 
 
 def load_reranker_model():
-    cache_key = ("reranker", get_reranker_cache_dir(), get_active_hf_endpoint())
+    model_name = get_reranker_model_name()
+    cache_dir = get_reranker_cache_dir_for_model(model_name)
+    cache_key = ("reranker", model_name, cache_dir, get_active_hf_endpoint())
 
     def factory() -> Any:
         apply_model_download_environment()
         from sentence_transformers import CrossEncoder
 
         model_source = (
-            get_reranker_cache_dir()
-            if os.path.exists(os.path.join(get_reranker_cache_dir(), "config.json"))
-            else RERANKER_MODEL_NAME
+            cache_dir
+            if os.path.exists(os.path.join(cache_dir, "config.json"))
+            else model_name
         )
         return CrossEncoder(
             model_source,
             max_length=512,
-            cache_folder=get_reranker_cache_dir(),
-            local_files_only=is_reranker_model_cached(),
+            cache_folder=cache_dir,
+            local_files_only=is_reranker_model_cached(model_name),
         )
 
     return get_cached_model_resource(cache_key, factory)
@@ -2521,22 +2694,54 @@ def build_qdrant_filter(where: Optional[Dict[str, Any]] = None):
     )
 
 
-def ensure_qdrant_collection(client) -> None:
+def get_qdrant_collection_vector_size(client: Any, collection_name: str) -> Optional[int]:
+    try:
+        info = client.get_collection(collection_name)
+        vectors_config = info.config.params.vectors
+        if hasattr(vectors_config, "size"):
+            return int(vectors_config.size)
+        if isinstance(vectors_config, dict):
+            first_vector = next(iter(vectors_config.values()), None)
+            if hasattr(first_vector, "size"):
+                return int(first_vector.size)
+    except Exception:
+        return None
+    return None
+
+
+def ensure_qdrant_collection(
+    client,
+    collection_name: Optional[str] = None,
+    vector_size: Optional[int] = None,
+) -> None:
     models = import_qdrant_models()
+    collection_name = collection_name or get_active_collection_name()
+    vector_size = int(vector_size or get_embedding_vector_size())
     collection_exists = False
     try:
-        collection_exists = client.collection_exists(COLLECTION_NAME)
+        collection_exists = client.collection_exists(collection_name)
     except Exception:
         try:
-            client.get_collection(COLLECTION_NAME)
+            client.get_collection(collection_name)
             collection_exists = True
         except Exception:
             collection_exists = False
 
     if not collection_exists:
         client.create_collection(
-            collection_name=COLLECTION_NAME,
-            vectors_config=models.VectorParams(size=VECTOR_SIZE, distance=models.Distance.COSINE),
+            collection_name=collection_name,
+            vectors_config=models.VectorParams(size=vector_size, distance=models.Distance.COSINE),
+        )
+        return
+
+    existing_size = get_qdrant_collection_vector_size(client, collection_name)
+    if existing_size is not None and existing_size != vector_size:
+        raise RuntimeError(
+            localized_text(
+                f"The active Qdrant collection '{collection_name}' uses {existing_size} dimensions, but the selected embedding model expects {vector_size}. Switch to the matching embedding model, import a matching backup, or convert the vector store in Settings > Vector Store.",
+                f"当前 Qdrant Collection「{collection_name}」是 {existing_size} 维，但所选文本向量化模型需要 {vector_size} 维。请切换为匹配的模型、导入匹配的备份，或在“配置中心 > 向量库连接”中执行向量库模型转换。",
+                f"目前 Qdrant Collection「{collection_name}」是 {existing_size} 維，但所選文字向量化模型需要 {vector_size} 維。請切換為匹配的模型、導入匹配的備份，或在「配置中心 > 向量庫連線」中執行向量庫模型轉換。",
+            )
         )
 
 
@@ -2610,8 +2815,9 @@ def close_stale_qdrant_clients(qdrant_path: str) -> int:
 
 
 def recreate_qdrant_collection() -> None:
+    collection_name = get_active_collection_name()
     try:
-        vector_client.delete_collection(COLLECTION_NAME)
+        vector_client.delete_collection(collection_name)
     except Exception:
         pass
     ensure_qdrant_collection(vector_client)
@@ -2715,6 +2921,7 @@ def qdrant_scroll_points(
     with_payload: bool = True,
     with_vectors: bool = False,
     client: Optional[Any] = None,
+    collection_name: Optional[str] = None,
 ) -> List[Any]:
     points = []
     for point in iter_qdrant_points(
@@ -2723,6 +2930,7 @@ def qdrant_scroll_points(
         with_payload=with_payload,
         with_vectors=with_vectors,
         client=client,
+        collection_name=collection_name,
     ):
         points.append(point)
         if limit and limit > 0 and len(points) >= limit:
@@ -2736,6 +2944,7 @@ def iter_qdrant_points(
     with_payload: bool = True,
     with_vectors: bool = False,
     client: Optional[Any] = None,
+    collection_name: Optional[str] = None,
 ) -> Iterator[Any]:
     """Stream points from Qdrant without keeping the whole collection in memory.
     以迭代方式读取 Qdrant point，避免一次性把整个集合放入内存。
@@ -2743,10 +2952,11 @@ def iter_qdrant_points(
     next_page = None
     scroll_filter = build_qdrant_filter(where)
     active_client = client or vector_client
+    collection_name = collection_name or get_active_collection_name()
     batch_size = max(1, min(int(batch_size or 256), 1024))
     while True:
         batch, next_page = active_client.scroll(
-            collection_name=COLLECTION_NAME,
+            collection_name=collection_name,
             scroll_filter=scroll_filter,
             limit=batch_size,
             offset=next_page,
@@ -2784,6 +2994,8 @@ def migrate_local_qdrant_to_http(
         )
 
     target_url = normalize_qdrant_url(target_url)
+    collection_name = get_active_collection_name()
+    vector_size = get_embedding_vector_size()
     source_client = None
     target_client = None
     copied_count = 0
@@ -2794,26 +3006,26 @@ def migrate_local_qdrant_to_http(
         else:
             source_client = QdrantClient(path=source_path)
 
-        if not source_client.collection_exists(COLLECTION_NAME):
+        if not source_client.collection_exists(collection_name):
             return 0
 
         target_client = QdrantClient(url=target_url, api_key=(target_api_key or None), timeout=60)
         if recreate_target:
             try:
-                target_client.delete_collection(COLLECTION_NAME)
+                target_client.delete_collection(collection_name)
             except Exception:
                 pass
 
-        if not target_client.collection_exists(COLLECTION_NAME):
+        if not target_client.collection_exists(collection_name):
             target_client.create_collection(
-                collection_name=COLLECTION_NAME,
-                vectors_config=models.VectorParams(size=VECTOR_SIZE, distance=models.Distance.COSINE),
+                collection_name=collection_name,
+                vectors_config=models.VectorParams(size=vector_size, distance=models.Distance.COSINE),
             )
 
         next_page = None
         while True:
             batch, next_page = source_client.scroll(
-                collection_name=COLLECTION_NAME,
+                collection_name=collection_name,
                 limit=batch_size,
                 offset=next_page,
                 with_payload=True,
@@ -2832,7 +3044,7 @@ def migrate_local_qdrant_to_http(
                     )
                 )
             if points:
-                target_client.upsert(collection_name=COLLECTION_NAME, points=points)
+                target_client.upsert(collection_name=collection_name, points=points)
                 copied_count += len(points)
                 if progress_callback:
                     progress_callback(copied_count)
@@ -2852,6 +3064,182 @@ def migrate_local_qdrant_to_http(
             except Exception:
                 pass
         release_memory_after_file()
+
+
+def infer_embedding_model_from_vector_size(vector_size: Optional[int]) -> str:
+    if vector_size is None:
+        return ""
+    for model_name, option in EMBEDDING_MODEL_OPTIONS.items():
+        if int(option["vector_size"]) == int(vector_size):
+            return model_name
+    return ""
+
+
+def ensure_collection_for_embedding_model(client: Any, model_name: str, recreate: bool = False) -> str:
+    models = import_qdrant_models()
+    collection_name = get_collection_name_for_embedding_model(model_name)
+    vector_size = get_embedding_vector_size(model_name)
+    if recreate:
+        try:
+            client.delete_collection(collection_name)
+        except Exception:
+            pass
+    try:
+        exists = client.collection_exists(collection_name)
+    except Exception:
+        exists = False
+    if not exists:
+        client.create_collection(
+            collection_name=collection_name,
+            vectors_config=models.VectorParams(size=vector_size, distance=models.Distance.COSINE),
+        )
+    else:
+        existing_size = get_qdrant_collection_vector_size(client, collection_name)
+        if existing_size is not None and existing_size != vector_size:
+            raise RuntimeError(
+                localized_text(
+                    f"Target collection '{collection_name}' uses {existing_size} dimensions, but {model_name} requires {vector_size}.",
+                    f"目标 Collection「{collection_name}」是 {existing_size} 维，但 {model_name} 需要 {vector_size} 维。",
+                    f"目標 Collection「{collection_name}」是 {existing_size} 維，但 {model_name} 需要 {vector_size} 維。",
+                )
+            )
+    return collection_name
+
+
+def convert_vector_collection_embeddings(
+    source_model_name: str,
+    target_model_name: str,
+    recreate_target: bool = False,
+    batch_size: int = 16,
+    progress_callback: Optional[Callable[[int], None]] = None,
+) -> int:
+    """Re-embed stored chunk text from one embedding collection into another.
+    从源向量集合读取已保存的 chunk 文本，并用目标 embedding 模型重新向量化写入目标集合。
+    """
+    if source_model_name not in EMBEDDING_MODEL_OPTIONS:
+        raise ValueError(localized_text("Unknown source embedding model.", "未知来源文本向量化模型。", "未知來源文字向量化模型。"))
+    if target_model_name not in EMBEDDING_MODEL_OPTIONS:
+        raise ValueError(localized_text("Unknown target embedding model.", "未知目标文本向量化模型。", "未知目標文字向量化模型。"))
+    if source_model_name == target_model_name:
+        raise ValueError(localized_text("Source and target models are the same.", "来源模型和目标模型相同。", "來源模型和目標模型相同。"))
+
+    active_client = load_qdrant_client()
+    source_collection = get_collection_name_for_embedding_model(source_model_name)
+    target_collection = ensure_collection_for_embedding_model(active_client, target_model_name, recreate=recreate_target)
+    try:
+        source_exists = active_client.collection_exists(source_collection)
+    except Exception:
+        source_exists = False
+    if not source_exists:
+        raise FileNotFoundError(
+            localized_text(
+                f"Source collection was not found: {source_collection}",
+                f"未找到来源 Collection：{source_collection}",
+                f"未找到來源 Collection：{source_collection}",
+            )
+        )
+
+    source_size = get_qdrant_collection_vector_size(active_client, source_collection)
+    expected_source_size = get_embedding_vector_size(source_model_name)
+    if source_size is not None and source_size != expected_source_size:
+        raise RuntimeError(
+            localized_text(
+                f"Source collection '{source_collection}' uses {source_size} dimensions, but {source_model_name} should use {expected_source_size}.",
+                f"来源 Collection「{source_collection}」是 {source_size} 维，但 {source_model_name} 应为 {expected_source_size} 维。",
+                f"來源 Collection「{source_collection}」是 {source_size} 維，但 {source_model_name} 應為 {expected_source_size} 維。",
+            )
+        )
+
+    models = import_qdrant_models()
+    pending_docs: List[str] = []
+    pending_points: List[Any] = []
+    converted_count = 0
+    batch_size = max(1, min(int(batch_size or 16), 64))
+
+    def flush_pending() -> None:
+        nonlocal converted_count
+        if not pending_docs:
+            return
+        vectors = embed_texts_with_model(pending_docs, target_model_name)
+        target_points = []
+        now = current_timestamp()
+        for point, vector in zip(pending_points, vectors):
+            payload = dict(getattr(point, "payload", None) or {})
+            payload["embedding_model"] = target_model_name
+            payload["embedding_vector_size"] = get_embedding_vector_size(target_model_name)
+            payload["converted_from_embedding_model"] = source_model_name
+            payload["converted_at"] = now
+            target_points.append(
+                models.PointStruct(
+                    id=point.id,
+                    vector=vector,
+                    payload=payload,
+                )
+            )
+        if target_points:
+            active_client.upsert(collection_name=target_collection, points=target_points)
+            converted_count += len(target_points)
+            if progress_callback:
+                progress_callback(converted_count)
+        pending_docs.clear()
+        pending_points.clear()
+        del vectors, target_points
+        gc.collect()
+
+    for point in iter_qdrant_points(
+        batch_size=batch_size,
+        with_payload=True,
+        with_vectors=False,
+        client=active_client,
+        collection_name=source_collection,
+    ):
+        payload = dict(getattr(point, "payload", None) or {})
+        document_text = str(payload.get("document") or "").strip()
+        if not document_text:
+            continue
+        pending_docs.append(document_text)
+        pending_points.append(point)
+        if len(pending_docs) >= batch_size:
+            flush_pending()
+    flush_pending()
+    return converted_count
+
+
+def inspect_vector_library_backup(uploaded_backup) -> Dict[str, Any]:
+    """Read backup manifest without extracting the full vector store.
+    只读取备份 manifest，不解压完整向量库。
+    """
+    try:
+        if not isinstance(uploaded_backup, (str, os.PathLike)):
+            uploaded_backup.seek(0)
+    except Exception:
+        pass
+    with zipfile.ZipFile(uploaded_backup) as archive:
+        try:
+            with archive.open(BACKUP_MANIFEST_NAME) as manifest_file:
+                manifest = json.loads(manifest_file.read().decode("utf-8"))
+        except KeyError:
+            manifest = {}
+    try:
+        if not isinstance(uploaded_backup, (str, os.PathLike)):
+            uploaded_backup.seek(0)
+    except Exception:
+        pass
+    vector_size = manifest.get("vector_size")
+    try:
+        vector_size = int(vector_size) if vector_size is not None else None
+    except Exception:
+        vector_size = None
+    model_name = str(manifest.get("embedding_model") or "").strip() or infer_embedding_model_from_vector_size(vector_size)
+    return {
+        "format": manifest.get("format", ""),
+        "version": manifest.get("version", ""),
+        "collection_name": manifest.get("active_collection_name") or manifest.get("collection_name", ""),
+        "vector_size": vector_size,
+        "embedding_model": model_name,
+        "matches_active_model": bool(model_name and model_name == get_embedding_model_name()),
+        "matches_active_dimension": bool(vector_size is not None and vector_size == get_embedding_vector_size()),
+    }
 
 
 def point_payload(point: Any) -> Dict[str, Any]:
@@ -2879,7 +3267,7 @@ def delete_vector_chunks_by_where(where: Dict[str, Any]) -> int:
     if point_ids:
         models = import_qdrant_models()
         vector_client.delete(
-            collection_name=COLLECTION_NAME,
+            collection_name=get_active_collection_name(),
             points_selector=models.PointIdsList(points=point_ids),
         )
     return len(point_ids)
@@ -2896,7 +3284,7 @@ def count_chunks_by_file_sha256(file_sha256: str) -> int:
         return 0
     try:
         result = vector_client.count(
-            collection_name=COLLECTION_NAME,
+            collection_name=get_active_collection_name(),
             count_filter=build_qdrant_filter({"file_sha256": file_sha256}),
             exact=True,
         )
@@ -2926,7 +3314,7 @@ def replace_existing_same_name_if_needed(file_name: str, file_sha256: str, enabl
     if existing_point_ids:
         models = import_qdrant_models()
         vector_client.delete(
-            collection_name=COLLECTION_NAME,
+            collection_name=get_active_collection_name(),
             points_selector=models.PointIdsList(points=existing_point_ids),
         )
     deleted_chunks = len(existing_point_ids)
@@ -3152,7 +3540,16 @@ def create_vector_library_backup_file(output_dir: str = BACKUP_DIR) -> Tuple[str
         "version": 2,
         "created_at": current_timestamp(),
         "collection_name": COLLECTION_NAME,
-        "vector_size": VECTOR_SIZE,
+        "active_collection_name": get_active_collection_name(),
+        "embedding_model": get_embedding_model_name(),
+        "vector_size": get_embedding_vector_size(),
+        "available_embedding_models": {
+            model_name: {
+                "collection_name": get_collection_name_for_embedding_model(model_name),
+                "vector_size": get_embedding_vector_size(model_name),
+            }
+            for model_name in EMBEDDING_MODEL_OPTIONS
+        },
         "qdrant_dir": QDRANT_DIR,
         "contains": [QDRANT_DIR, BACKUP_INGESTED_FILES_NAME],
         "notes": {

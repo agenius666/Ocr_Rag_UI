@@ -21,7 +21,7 @@ def split_text(text: str, chunk_size: int = 600, overlap: int = 100) -> List[str
 
 def embed_texts(texts: List[str]) -> List[List[float]]:
     """
-    用 BGE-M3 生成向量。
+    用当前配置的 BGE 模型生成向量。
     normalize_embeddings=True 一般更适合向量相似度检索。
     """
     embedding_model = load_embedding_model()
@@ -105,7 +105,7 @@ def flush_vector_batch(
         for index in range(len(chunks))
     ]
     vector_client.upsert(
-        collection_name=COLLECTION_NAME,
+        collection_name=get_active_collection_name(),
         points=points,
     )
     written_count = len(chunks)
@@ -148,7 +148,8 @@ def add_document_to_vector_store(
                     "doc_category": doc_category,
                     "doc_category_name": DOC_CATEGORY_NAMES.get(doc_category, doc_category),
                     "chunk_index": index,
-                    "embedding_model": EMBEDDING_MODEL_NAME,
+                    "embedding_model": get_embedding_model_name(),
+                    "embedding_vector_size": get_embedding_vector_size(),
                 }
             )
         )
@@ -206,7 +207,8 @@ def add_document_to_vector_store_with_optional_replace(
                     "doc_category": doc_category,
                     "doc_category_name": DOC_CATEGORY_NAMES.get(doc_category, doc_category),
                     "chunk_index": index,
-                    "embedding_model": EMBEDDING_MODEL_NAME,
+                    "embedding_model": get_embedding_model_name(),
+                    "embedding_vector_size": get_embedding_vector_size(),
                 }
             )
         )
@@ -463,7 +465,7 @@ def run_background_ingest_task(
 # =========================
 def count_chunks(doc_category: Optional[str] = None) -> int:
     result = vector_client.count(
-        collection_name=COLLECTION_NAME,
+        collection_name=get_active_collection_name(),
         count_filter=build_qdrant_filter({"doc_category": doc_category}) if doc_category else None,
         exact=True,
     )
@@ -482,7 +484,7 @@ def query_qdrant_points(
     query_filter = build_qdrant_filter({"doc_category": doc_category}) if doc_category else None
     try:
         result = vector_client.query_points(
-            collection_name=COLLECTION_NAME,
+            collection_name=get_active_collection_name(),
             query=query_embedding,
             query_filter=query_filter,
             limit=top_k,
@@ -492,7 +494,7 @@ def query_qdrant_points(
         points = getattr(result, "points", result)
     except Exception:
         points = vector_client.search(
-            collection_name=COLLECTION_NAME,
+            collection_name=get_active_collection_name(),
             query_vector=query_embedding,
             query_filter=query_filter,
             limit=top_k,

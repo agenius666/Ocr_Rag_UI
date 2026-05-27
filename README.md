@@ -1,6 +1,6 @@
 # OCR RAG UI
 
-Local OCR + RAG document Q&A and compliance analysis app built with PaddleOCR, BGE-M3, Qdrant, and a local LLM endpoint compatible with OpenAI Chat Completions or Anthropic Messages.
+Local OCR + RAG document Q&A and compliance analysis app built with PaddleOCR, configurable BGE embedding/reranker models, Qdrant, and a local LLM endpoint compatible with OpenAI Chat Completions or Anthropic Messages.
 
 Default UI language is English. You can switch to Simplified Chinese or Traditional Chinese in `Settings > Language`. The selected language and other custom settings are saved in `app_state.sqlite3`.
 
@@ -15,7 +15,7 @@ Extract text and run OCR when needed
 ↓
 Chunk the text
 ↓
-Create embeddings with BAAI/bge-m3
+Create embeddings with the selected BGE embedding model
 ↓
 Store vectors in local Qdrant or an HTTP/Docker Qdrant service
 ↓
@@ -36,8 +36,8 @@ Generate answers through a local LLM endpoint
 - Legacy Office files can be converted through LibreOffice.
 - PPT/PPTX can be rasterized to page images and OCRed to reduce memory pressure from complex slide objects.
 - Oversized XLSX/XLS files can be skipped by row-count threshold.
-- `BAAI/bge-m3` embeddings.
-- Optional `BAAI/bge-reranker-v2-m3` reranking.
+- Configurable embedding model: `BAAI/bge-m3` or `BAAI/bge-base-zh-v1.5`.
+- Optional reranker: `BAAI/bge-reranker-v2-m3` or `BAAI/bge-reranker-base`.
 - Qdrant vector store through local files or HTTP/Docker connection.
 - Local-to-HTTP Qdrant migration copies existing vectors without re-OCR or re-embedding.
 - Multi-turn RAG chat with saved sessions.
@@ -227,17 +227,17 @@ ocr_rag_ui/
 The app uses:
 
 - PaddleOCR models for images, scanned PDFs, and embedded Office images.
-- `BAAI/bge-m3` for embeddings.
-- Optional `BAAI/bge-reranker-v2-m3` for reranking retrieved chunks.
+- `BAAI/bge-m3` or `BAAI/bge-base-zh-v1.5` for embeddings.
+- Optional `BAAI/bge-reranker-v2-m3` or `BAAI/bge-reranker-base` for reranking retrieved chunks.
 - Your configured local LLM endpoint for answer generation. The app does not download Qwen or other chat models by itself.
 
-Model cache paths can be configured in `Settings`.
+Model choices and cache paths can be configured in `Settings`. Because the supported embedding models use different vector dimensions, changing the embedding model switches to the matching Qdrant collection. Use `Settings > Vector Store > Embedding Model Conversion` to re-embed stored chunks between supported collections.
 
 ### Download Sources And Local Services
 
 `Settings > Models And Paths` lets you configure both cache paths and download or install sources:
 
-- BGE-M3 and the reranker use `sentence-transformers` / Hugging Face compatible downloads. You can choose the official endpoint, `https://hf-mirror.com`, or a custom Hugging Face-compatible endpoint.
+- Embedding and reranker models use `sentence-transformers` / Hugging Face compatible downloads. You can choose the official endpoint, `https://hf-mirror.com`, or a custom Hugging Face-compatible endpoint.
 - PaddleOCR uses PaddleX official model downloads. You can choose Hugging Face / PaddlePaddle, ModelScope, Baidu AIStudio, or Paddle BOS. When PaddleOCR uses Hugging Face, the same configured Hugging Face endpoint is applied.
 - LibreOffice is not a model. It is resolved through the configured `soffice` path, the system package manager, or a custom single-command install command for your own mirror/internal package source.
 - Qdrant can run as a local file store or as an HTTP/Docker service.
@@ -253,7 +253,7 @@ Model cache paths can be configured in `Settings`.
 
 ### 项目简介
 
-这是一个本地运行的 OCR + RAG 文档问答与合规分析工具，使用 PaddleOCR、BGE-M3、Qdrant，以及 OpenAI Chat Completions 或 Anthropic Messages 兼容本地大模型接口。
+这是一个本地运行的 OCR + RAG 文档问答与合规分析工具，使用 PaddleOCR、可配置 BGE 向量/重排模型、Qdrant，以及 OpenAI Chat Completions 或 Anthropic Messages 兼容本地大模型接口。
 
 界面默认语言是英文。你可以在“配置中心 / Settings > 语言设置 / Language”中切换为简体中文或繁体中文。语言选择和其他自定义配置会保存到 `app_state.sqlite3`，下次打开不用重复填写。
 
@@ -266,7 +266,7 @@ Model cache paths can be configured in `Settings`.
 ↓
 文本切分
 ↓
-BAAI/bge-m3 生成向量
+使用所选 BGE 向量模型生成向量
 ↓
 写入本地 Qdrant 或 HTTP/Docker Qdrant 向量库
 ↓
@@ -287,8 +287,8 @@ BAAI/bge-m3 生成向量
 - 老版 Office 文件可通过 LibreOffice 转换后解析。
 - PPT/PPTX 可先栅格化为页面图像后 OCR，降低复杂幻灯片对象带来的内存压力。
 - 可按行数阈值跳过超大 XLSX/XLS 文件。
-- 使用 `BAAI/bge-m3` 生成文本向量。
-- 可选使用 `BAAI/bge-reranker-v2-m3` 做检索结果重排。
+- 可选择 `BAAI/bge-m3` 或 `BAAI/bge-base-zh-v1.5` 生成文本向量。
+- 可选使用 `BAAI/bge-reranker-v2-m3` 或 `BAAI/bge-reranker-base` 做检索结果重排。
 - 支持使用本地文件 Qdrant 或 HTTP/Docker Qdrant 保存向量库。
 - 支持将本地 Qdrant 向量点迁移到 HTTP/Docker Qdrant，不需要重新 OCR 或重新生成向量。
 - 支持多轮检索问答和历史会话保存。
@@ -478,17 +478,17 @@ ocr_rag_ui/
 本项目会使用：
 
 - PaddleOCR 模型：用于图片、扫描件、PDF 页面和 Office 内嵌图片 OCR。
-- `BAAI/bge-m3`：用于文本向量化。
-- `BAAI/bge-reranker-v2-m3`：可选，用于检索结果重排。
+- `BAAI/bge-m3` 或 `BAAI/bge-base-zh-v1.5`：用于文本向量化。
+- `BAAI/bge-reranker-v2-m3` 或 `BAAI/bge-reranker-base`：可选，用于检索结果重排。
 - 本地大模型：由你配置的 OpenAI 兼容或 Anthropic 兼容接口提供，本项目不会自动下载 Qwen 或其他聊天模型。
 
-模型保存路径可以在“配置中心 / Settings”页面调整。
+模型选择和保存路径可以在“配置中心 / Settings”页面调整。由于不同向量模型的维度不同，切换向量模型会切换到对应的 Qdrant Collection；如需复用已有 chunk 文本重新生成向量，可在“配置中心 > 向量库连接 > 向量库模型转换”中执行转换。
 
 ### 下载来源与本地服务
 
 “配置中心 / Settings > 模型与路径”可以同时配置缓存路径、下载来源和安装来源：
 
-- BGE-M3 和 Reranker 通过 `sentence-transformers` / Hugging Face 兼容机制下载，可选择官方端点、`https://hf-mirror.com` 或自定义 Hugging Face 兼容端点。
+- 向量模型和 Reranker 通过 `sentence-transformers` / Hugging Face 兼容机制下载，可选择官方端点、`https://hf-mirror.com` 或自定义 Hugging Face 兼容端点。
 - PaddleOCR 通过 PaddleX 官方模型机制下载，可选择 Hugging Face / PaddlePaddle、ModelScope 魔搭、百度 AIStudio 或 Paddle BOS。PaddleOCR 下载源为 Hugging Face 时，会复用上面配置的 Hugging Face 端点。
 - LibreOffice 不是模型。它通过已配置的 `soffice` 路径、系统包管理器或自定义单条安装命令获取，适合配置镜像源或内网安装命令。
 - Qdrant 可使用本地文件库，也可连接 HTTP/Docker Qdrant 服务。
@@ -504,7 +504,7 @@ ocr_rag_ui/
 
 ### 專案簡介
 
-這是一個本地執行的 OCR + RAG 文件問答與合規分析工具，使用 PaddleOCR、BGE-M3、Qdrant，以及 OpenAI Chat Completions 或 Anthropic Messages 相容本地大模型接口。
+這是一個本地執行的 OCR + RAG 文件問答與合規分析工具，使用 PaddleOCR、可配置 BGE 向量/重排模型、Qdrant，以及 OpenAI Chat Completions 或 Anthropic Messages 相容本地大模型接口。
 
 介面預設語言是英文。你可以在「Settings > Language」中切換為簡體中文或繁體中文。語言選擇和其他自訂配置會保存到 `app_state.sqlite3`，下次打開不用重複填寫。
 
@@ -517,7 +517,7 @@ ocr_rag_ui/
 ↓
 文字切分
 ↓
-BAAI/bge-m3 生成向量
+使用所選 BGE 向量模型生成向量
 ↓
 寫入本地 Qdrant 或 HTTP/Docker Qdrant 向量庫
 ↓
@@ -538,8 +538,8 @@ BAAI/bge-m3 生成向量
 - 舊版 Office 文件可通過 LibreOffice 轉換後解析。
 - PPT/PPTX 可先柵格化為頁面圖像後 OCR，降低複雜投影片物件帶來的記憶體壓力。
 - 可按行數閾值跳過超大 XLSX/XLS 文件。
-- 使用 `BAAI/bge-m3` 生成文字向量。
-- 可選使用 `BAAI/bge-reranker-v2-m3` 做檢索結果重排。
+- 可選擇 `BAAI/bge-m3` 或 `BAAI/bge-base-zh-v1.5` 生成文字向量。
+- 可選使用 `BAAI/bge-reranker-v2-m3` 或 `BAAI/bge-reranker-base` 做檢索結果重排。
 - 支援使用本地文件 Qdrant 或 HTTP/Docker Qdrant 保存向量庫。
 - 支援將本地 Qdrant 向量點遷移到 HTTP/Docker Qdrant，不需要重新 OCR 或重新生成向量。
 - 支援多輪檢索問答和歷史會話保存。
@@ -729,17 +729,17 @@ ocr_rag_ui/
 本專案會使用：
 
 - PaddleOCR 模型：用於圖片、掃描件、PDF 頁面和 Office 內嵌圖片 OCR。
-- `BAAI/bge-m3`：用於文字向量化。
-- `BAAI/bge-reranker-v2-m3`：可選，用於檢索結果重排。
+- `BAAI/bge-m3` 或 `BAAI/bge-base-zh-v1.5`：用於文字向量化。
+- `BAAI/bge-reranker-v2-m3` 或 `BAAI/bge-reranker-base`：可選，用於檢索結果重排。
 - 本地大模型：由你配置的 OpenAI 相容或 Anthropic 相容接口提供，本專案不會自動下載 Qwen 或其他聊天模型。
 
-模型保存路徑可以在 `Settings` 頁面調整。
+模型選擇和保存路徑可以在 `Settings` 頁面調整。由於不同向量模型的維度不同，切換向量模型會切換到對應的 Qdrant Collection；如需複用既有 chunk 文字重新生成向量，可在「配置中心 > 向量庫連線 > 向量庫模型轉換」中執行轉換。
 
 ### 下載來源與本地服務
 
 `Settings > Models And Paths` 可以同時配置快取路徑、下載來源和安裝來源：
 
-- BGE-M3 和 Reranker 透過 `sentence-transformers` / Hugging Face 相容機制下載，可選擇官方端點、`https://hf-mirror.com` 或自訂 Hugging Face 相容端點。
+- 向量模型和 Reranker 透過 `sentence-transformers` / Hugging Face 相容機制下載，可選擇官方端點、`https://hf-mirror.com` 或自訂 Hugging Face 相容端點。
 - PaddleOCR 透過 PaddleX 官方模型機制下載，可選擇 Hugging Face / PaddlePaddle、ModelScope 魔搭、百度 AIStudio 或 Paddle BOS。PaddleOCR 下載源為 Hugging Face 時，會複用上面配置的 Hugging Face 端點。
 - LibreOffice 不是模型。它透過已配置的 `soffice` 路徑、系統套件管理器或自訂單條安裝命令取得，適合配置鏡像源或內網安裝命令。
 - Qdrant 可使用本地文件庫，也可連接 HTTP/Docker Qdrant 服務。

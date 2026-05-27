@@ -12,6 +12,8 @@ def render_model_status_tab() -> None:
     qdrant_config = get_qdrant_config()
     active_ocr_config = get_paddleocr_model_config()
     download_config = get_model_download_config()
+    active_embedding_model = get_embedding_model_name()
+    active_reranker_model = get_reranker_model_name()
     soffice_binary = find_soffice_binary()
     libreoffice_plan = get_libreoffice_install_plan()
     model_rows = [
@@ -24,19 +26,22 @@ def render_model_status_tab() -> None:
             ),
         },
         {
-            localized_text("Component", "组件", "組件"): EMBEDDING_MODEL_NAME,
+            localized_text("Component", "组件", "組件"): active_embedding_model,
             localized_text("Status", "状态", "狀態"): get_bge_cache_status(),
-            localized_text("Purpose", "用途", "用途"): localized_text("Text vectorization and vector retrieval", "文本向量化和向量检索", "文字向量化和向量檢索"),
+            localized_text("Purpose", "用途", "用途"): (
+                localized_text("Text vectorization and vector retrieval; collection: ", "文本向量化和向量检索；Collection：", "文字向量化和向量檢索；Collection：")
+                + f"{get_active_collection_name()} / {get_embedding_vector_size()}D"
+            ),
         },
         {
-            localized_text("Component", "组件", "組件"): RERANKER_MODEL_NAME,
+            localized_text("Component", "组件", "組件"): active_reranker_model,
             localized_text("Status", "状态", "狀態"): get_reranker_cache_status(),
             localized_text("Purpose", "用途", "用途"): localized_text("Candidate chunk reranking to improve retrieval precision", "候选片段重排，提升检索精度", "候選片段重排，提升檢索精度"),
         },
         {
             localized_text("Component", "组件", "組件"): localized_text("Download Sources", "下载来源", "下載來源"),
             localized_text("Status", "状态", "狀態"): (
-                localized_text("BGE-M3 / reranker: ", "BGE-M3 / Reranker：", "BGE-M3 / Reranker：")
+                localized_text("Embedding / reranker: ", "向量模型 / 重排模型：", "向量模型 / 重排模型：")
                 + download_config["source_label"]
                 + "; "
                 + localized_text("HF endpoint: ", "HF 端点：", "HF 端點：")
@@ -108,7 +113,7 @@ def render_model_status_tab() -> None:
 
     with st.container(border=True):
         st.markdown(localized_text("#### Memory Management", "#### 内存管理", "#### 記憶體管理"))
-        if st.button(localized_text("Release OCR / BGE-M3 / Reranker Model Cache", "释放 OCR / BGE-M3 / Reranker 模型缓存", "釋放 OCR / BGE-M3 / Reranker 模型快取"), key="clear_model_cache"):
+        if st.button(localized_text("Release OCR / Embedding / Reranker Model Cache", "释放 OCR / 向量模型 / 重排模型缓存", "釋放 OCR / 向量模型 / 重排模型快取"), key="clear_model_cache"):
             try:
                 load_ocr_model.clear()
                 load_embedding_model.clear()
@@ -117,9 +122,9 @@ def render_model_status_tab() -> None:
                 record_model_event(
                     localized_text("Model Cache", "模型缓存", "模型快取"),
                     localized_text("Completed", "完成", "完成"),
-                    localized_text("OCR, BGE-M3, and Reranker caches cleared", "已清理 OCR、BGE-M3 和 Reranker 缓存", "已清理 OCR、BGE-M3 和 Reranker 快取"),
+                    localized_text("OCR, embedding, and reranker caches cleared", "已清理 OCR、向量模型和重排模型缓存", "已清理 OCR、向量模型和重排模型快取"),
                 )
-                st.success(localized_text("OCR / BGE-M3 / Reranker model caches released.", "已释放 OCR / BGE-M3 / Reranker 模型缓存。", "已釋放 OCR / BGE-M3 / Reranker 模型快取。"))
+                st.success(localized_text("OCR / embedding / reranker model caches released.", "已释放 OCR / 向量模型 / 重排模型缓存。", "已釋放 OCR / 向量模型 / 重排模型快取。"))
             except Exception as e:
                 record_model_event(localized_text("Model Cache", "模型缓存", "模型快取"), localized_text("Failed", "失败", "失敗"), str(e))
                 st.error(localized_text(f"Failed to release model caches: {e}", f"释放模型缓存失败：{e}", f"釋放模型快取失敗：{e}"))
@@ -136,9 +141,9 @@ def render_model_status_tab() -> None:
 
     with st.container(border=True):
         st.markdown("#### PaddleOCR")
-        if st.button("预加载 PaddleOCR", key="preload_ocr"):
+        if st.button(localized_text("Preload PaddleOCR", "预加载 PaddleOCR", "預載 PaddleOCR"), key="preload_ocr"):
             try:
-                with st.status("正在加载 PaddleOCR...", expanded=True) as status:
+                with st.status(localized_text("Loading PaddleOCR...", "正在加载 PaddleOCR...", "正在載入 PaddleOCR..."), expanded=True) as status:
                     st.write(localized_text("Checking local cache...", "检查本地缓存...", "檢查本地快取..."))
                     st.write(get_paddle_cache_status())
                     st.write(localized_text("Loading OCR model...", "加载 OCR 模型...", "載入 OCR 模型..."))
@@ -150,47 +155,47 @@ def render_model_status_tab() -> None:
                 st.error(localized_text(f"PaddleOCR loading failed: {e}", f"PaddleOCR 加载失败：{e}", f"PaddleOCR 載入失敗：{e}"))
 
     with st.container(border=True):
-        st.markdown("#### BGE-M3")
-        if st.button("预加载 BGE-M3", key="preload_bge"):
+        st.markdown(f"#### {localized_text('Embedding Model', '向量模型', '向量模型')}：{active_embedding_model}")
+        if st.button(localized_text("Preload Embedding Model", "预加载向量模型", "預載向量模型"), key="preload_bge"):
             try:
-                with st.status("正在加载 BGE-M3...", expanded=True) as status:
+                with st.status(localized_text("Loading embedding model...", "正在加载向量模型...", "正在載入向量模型..."), expanded=True) as status:
                     st.write(localized_text("Checking local cache...", "检查本地缓存...", "檢查本地快取..."))
                     st.write(get_bge_cache_status())
                     st.write(localized_text("Loading embedding model...", "加载 embedding 模型...", "載入 embedding 模型..."))
                     load_embedding_model()
                     st.write(localized_text("Running a test embedding...", "执行一次测试向量化...", "執行一次測試向量化..."))
                     embed_texts([localized_text("Model preload test", "模型预加载测试", "模型預載測試")])
-                    record_model_event(EMBEDDING_MODEL_NAME, localized_text("Completed", "完成", "完成"), localized_text("BGE-M3 is available", "BGE-M3 已可用", "BGE-M3 已可用"))
-                    status.update(label=localized_text("BGE-M3 is available", "BGE-M3 已可用", "BGE-M3 已可用"), state="complete")
+                    record_model_event(active_embedding_model, localized_text("Completed", "完成", "完成"), localized_text("Embedding model is available", "向量模型已可用", "向量模型已可用"))
+                    status.update(label=localized_text("Embedding model is available", "向量模型已可用", "向量模型已可用"), state="complete")
             except Exception as e:
-                record_model_event(EMBEDDING_MODEL_NAME, localized_text("Failed", "失败", "失敗"), str(e))
-                st.error(localized_text(f"BGE-M3 loading failed: {e}", f"BGE-M3 加载失败：{e}", f"BGE-M3 載入失敗：{e}"))
+                record_model_event(active_embedding_model, localized_text("Failed", "失败", "失敗"), str(e))
+                st.error(localized_text(f"Embedding model loading failed: {e}", f"向量模型加载失败：{e}", f"向量模型載入失敗：{e}"))
 
     with st.container(border=True):
-        st.markdown("#### BGE Reranker")
-        if st.button("预加载 Reranker", key="preload_reranker"):
+        st.markdown(f"#### {localized_text('Reranker Model', '重排模型', '重排模型')}：{active_reranker_model}")
+        if st.button(localized_text("Preload Reranker", "预加载重排模型", "預載重排模型"), key="preload_reranker"):
             try:
-                with st.status("正在加载 Reranker...", expanded=True) as status:
+                with st.status(localized_text("Loading reranker...", "正在加载重排模型...", "正在載入重排模型..."), expanded=True) as status:
                     st.write(localized_text("Checking local cache...", "检查本地缓存...", "檢查本地快取..."))
                     st.write(get_reranker_cache_status())
                     st.write(localized_text("Loading reranker model...", "加载重排模型...", "載入重排模型..."))
                     reranker = load_reranker_model()
                     st.write(localized_text("Running a test rerank...", "执行一次测试重排...", "執行一次測試重排..."))
                     reranker.predict([[localized_text("Test question", "测试问题", "測試問題"), localized_text("Test chunk", "测试片段", "測試片段")]], show_progress_bar=False)
-                    record_model_event(RERANKER_MODEL_NAME, localized_text("Completed", "完成", "完成"), localized_text("Reranker is available", "Reranker 已可用", "Reranker 已可用"))
+                    record_model_event(active_reranker_model, localized_text("Completed", "完成", "完成"), localized_text("Reranker is available", "Reranker 已可用", "Reranker 已可用"))
                     status.update(label=localized_text("Reranker is available", "Reranker 已可用", "Reranker 已可用"), state="complete")
             except Exception as e:
-                record_model_event(RERANKER_MODEL_NAME, localized_text("Failed", "失败", "失敗"), str(e))
+                record_model_event(active_reranker_model, localized_text("Failed", "失败", "失敗"), str(e))
                 st.error(localized_text(f"Reranker loading failed: {e}", f"Reranker 加载失败：{e}", f"Reranker 載入失敗：{e}"))
 
     with st.container(border=True):
-        st.markdown("#### Office 老格式转换")
+        st.markdown(f"#### {localized_text('Legacy Office Conversion', 'Office 老格式转换', 'Office 舊格式轉換')}")
         soffice_binary = find_soffice_binary()
         if soffice_binary:
             st.success(localized_text(f"LibreOffice is available: {soffice_binary}", f"LibreOffice 已可用：{soffice_binary}", f"LibreOffice 已可用：{soffice_binary}"))
-            if st.button("测试 LibreOffice", key="test_libreoffice"):
+            if st.button(localized_text("Test LibreOffice", "测试 LibreOffice", "測試 LibreOffice"), key="test_libreoffice"):
                 try:
-                    with st.status("正在测试 LibreOffice...", expanded=True) as status:
+                    with st.status(localized_text("Testing LibreOffice...", "正在测试 LibreOffice...", "正在測試 LibreOffice..."), expanded=True) as status:
                         result = run_subprocess([soffice_binary, "--version"], timeout=60)
                         if result.returncode == 0:
                             version_text = (result.stdout or result.stderr or "").strip()
@@ -217,8 +222,8 @@ def render_model_status_tab() -> None:
                     f"當前系統安裝方案：{libreoffice_plan.get('manual', '無可用方案')}",
                 )
             )
-            if st.button("自动安装 LibreOffice", key="install_libreoffice"):
-                with st.status("正在自动安装 LibreOffice...", expanded=True) as status:
+            if st.button(localized_text("Auto Install LibreOffice", "自动安装 LibreOffice", "自動安裝 LibreOffice"), key="install_libreoffice"):
+                with st.status(localized_text("Automatically installing LibreOffice...", "正在自动安装 LibreOffice...", "正在自動安裝 LibreOffice..."), expanded=True) as status:
                     st.write(
                         localized_text("Current system: ", "当前系统：", "當前系統：")
                         + str(libreoffice_plan.get("platform", localized_text("Unknown system", "未知系统", "未知系統")))
@@ -241,12 +246,12 @@ def render_model_status_tab() -> None:
                         status.update(label=localized_text("LibreOffice automatic installation failed", "LibreOffice 自动安装失败", "LibreOffice 自動安裝失敗"), state="error")
 
     with st.container(border=True):
-        st.markdown("#### 本地大模型")
+        st.markdown(f"#### {localized_text('Local LLM', '本地大模型', '本地大模型')}")
         saved_model_status_test_mode = get_config_value("model_status_test_mode_label", "快速")
         if saved_model_status_test_mode not in LLM_MODE_OPTIONS:
             saved_model_status_test_mode = "快速"
         model_test_mode_label = st.radio(
-            "测试模式",
+            localized_text("Test Mode", "测试模式", "測試模式"),
             list(LLM_MODE_OPTIONS.keys()),
             index=list(LLM_MODE_OPTIONS.keys()).index(saved_model_status_test_mode),
             horizontal=False,
@@ -254,8 +259,8 @@ def render_model_status_tab() -> None:
         )
         set_config_value("model_status_test_mode_label", model_test_mode_label)
         model_test_mode = LLM_MODE_OPTIONS[model_test_mode_label]
-        if st.button("测试本地大模型", key="test_llm"):
-            with st.status("正在测试本地大模型接口...", expanded=True) as status:
+        if st.button(localized_text("Test Local LLM", "测试本地大模型", "測試本地大模型"), key="test_llm"):
+            with st.status(localized_text("Testing local LLM endpoint...", "正在测试本地大模型接口...", "正在測試本地大模型接口..."), expanded=True) as status:
                 try:
                     active_config = get_llm_config()
                     test_model, test_extra_body = get_llm_mode_config(model_test_mode)
