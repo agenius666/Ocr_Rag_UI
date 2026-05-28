@@ -4,11 +4,13 @@
 
 import random
 
+from openpyxl.styles import Alignment
+
 from .services import *
 
 
 DISTILLATION_TEXT_FIELDS = ("document", "text", "content", "chunk", "chunk_text", "page_content")
-SFT_REQUIRED_FIELDS = ("instruction", "output")
+SFT_REQUIRED_FIELDS = ("instruction", "input", "output")
 PREFERENCE_REQUIRED_FIELDS = ("prompt", "chosen", "rejected", "judge_reason")
 
 
@@ -124,6 +126,7 @@ def build_sft_distillation_prompt(
 6. 必须严格输出 JSON 数组。
 7. 不要使用 Markdown 代码块包裹 JSON。
 8. 如果资料不足以生成问题，请少生成，不要编造。
+9. source 必须填写对应 Chunk 中的 Source 原文，不允许编造新的来源。
 
 资料如下：
 {context_chunks}
@@ -136,7 +139,7 @@ def build_sft_distillation_prompt(
     "instruction": "问题或任务指令",
     "input": "必要的上下文或补充资料",
     "output": "标准答案",
-    "source": "chunk 来源或文档名",
+    "source": "必须填写上方 Chunk 的 Source 原文",
     "type": "{qa_type}"
   }}
 ]
@@ -164,11 +167,12 @@ def build_preference_distillation_prompt(
 要求：
 1. 问题必须基于资料内容。
 2. chosen 必须比 rejected 更准确、更完整、更专业。
-3. rejected 可以是不完整、过于笼统、遗漏关键风险点或表达不规范的答案，但不能包含危险内容。
+3. rejected 应是质量较差但仍与问题相关的答案，可以不完整、过于笼统、遗漏关键风险点或表达不规范；不要编造与资料相反的事实，也不能包含危险内容。
 4. 必须说明 chosen 优于 rejected 的原因。
 5. 严格输出 JSON 数组。
 6. 不要使用 Markdown 代码块包裹 JSON。
 7. 如果资料不足以生成问题，请少生成，不要编造。
+8. source 必须填写对应 Chunk 中的 Source 原文，不允许编造新的来源。
 
 资料如下：
 {context_chunks}
@@ -182,7 +186,7 @@ def build_preference_distillation_prompt(
     "chosen": "更好的答案",
     "rejected": "较差的答案",
     "judge_reason": "为什么 chosen 更好",
-    "source": "chunk 来源或文档名",
+    "source": "必须填写上方 Chunk 的 Source 原文",
     "type": "preference"
   }}
 ]
@@ -221,6 +225,8 @@ def parse_json_array_response(raw_text: str) -> List[Dict[str, Any]]:
             if isinstance(value, list):
                 parsed = value
                 break
+        else:
+            parsed = [parsed]
     if not isinstance(parsed, list):
         raise ValueError(localized_text("The model did not return a JSON array.", "模型未返回 JSON 数组。", "模型未返回 JSON 陣列。"))
     return [item for item in parsed if isinstance(item, dict)]
@@ -249,16 +255,19 @@ def validate_sft_items(
     """
     valid_items = []
     for item in items:
-        instruction = normalize_generated_text(item.get("instruction"))
-        output = normalize_generated_text(item.get("output"))
-        if not instruction or not output or instruction in seen_instructions:
+        normalized = {field: normalize_generated_text(item.get(field)) for field in SFT_REQUIRED_FIELDS}
+        instruction = normalized["instruction"]
+        input_text = normalized["input"]
+        output = normalized["output"]
+        dedupe_key = f"{instruction}|{input_text[:200]}"
+        if not instruction or not input_text or not output or dedupe_key in seen_instructions:
             continue
-        seen_instructions.add(instruction)
+        seen_instructions.add(dedupe_key)
         valid_items.append(
             {
                 "id": str(uuid.uuid4()),
                 "instruction": instruction,
-                "input": normalize_generated_text(item.get("input")),
+                "input": input_text,
                 "output": output,
                 "source": normalize_generated_text(item.get("source")) or fallback_source,
                 "type": normalize_generated_text(item.get("type")) or qa_type,
@@ -281,15 +290,17 @@ def validate_preference_items(
     """
     valid_items = []
     for item in items:
-        prompt = normalize_generated_text(item.get("prompt"))
-        chosen = normalize_generated_text(item.get("chosen"))
-        rejected = normalize_generated_text(item.get("rejected"))
-        judge_reason = normalize_generated_text(item.get("judge_reason"))
+        normalized = {field: normalize_generated_text(item.get(field)) for field in PREFERENCE_REQUIRED_FIELDS}
+        prompt = normalized["prompt"]
+        chosen = normalized["chosen"]
+        rejected = normalized["rejected"]
+        judge_reason = normalized["judge_reason"]
         if not prompt or not chosen or not rejected or not judge_reason:
             continue
-        if chosen == rejected or prompt in seen_prompts:
+        dedupe_key = f"{prompt}|{chosen[:120]}"
+        if chosen == rejected or dedupe_key in seen_prompts:
             continue
-        seen_prompts.add(prompt)
+        seen_prompts.add(dedupe_key)
         valid_items.append(
             {
                 "id": str(uuid.uuid4()),
@@ -297,7 +308,7 @@ def validate_preference_items(
                 "chosen": chosen,
                 "rejected": rejected,
                 "source": normalize_generated_text(item.get("source")) or fallback_source,
-                "type": normalize_generated_text(item.get("type")) or qa_type,
+                "type": "preference",
                 "judge_reason": judge_reason,
                 "model": model_name,
                 "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -320,11 +331,13 @@ def generate_distillation_batch(
     生成并校验一个蒸馏数据批次。
     """
     model_name, _ = get_llm_mode_config(llm_mode)
-    fallback_source = "; ".join(chunk.get("source", "") for chunk in chunks if chunk.get("source"))
+    sources = [chunk.get("source", "") for chunk in chunks if chunk.get("source")]
+    fallback_source = "; ".join(sources[:3])
     if generation_mode == "preference":
         user_prompt = build_preference_distillation_prompt(chunks, batch_size, qa_type, max_chars_per_chunk)
     else:
         user_prompt = build_sft_distillation_prompt(chunks, batch_size, qa_type, max_chars_per_chunk)
+    temperature = 0.4 if generation_mode == "sft" else 0.5
 
     response = create_llm_chat_completion(
         messages=[
@@ -338,7 +351,7 @@ def generate_distillation_batch(
             },
             {"role": "user", "content": user_prompt},
         ],
-        temperature=0.3,
+        temperature=temperature,
         mode=llm_mode,
         timeout_seconds=timeout_seconds,
     )
@@ -371,6 +384,10 @@ def build_distillation_excel(items: List[Dict[str, Any]], generation_mode: str) 
     sheet.append(headers)
     for item in items:
         sheet.append([item.get(header, "") for header in headers])
+    sheet.freeze_panes = "A2"
+    for row in sheet.iter_rows():
+        for cell in row:
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
     for column_cells in sheet.columns:
         column_letter = column_cells[0].column_letter
         sheet.column_dimensions[column_letter].width = min(48, max(12, len(str(column_cells[0].value or "")) + 4))
