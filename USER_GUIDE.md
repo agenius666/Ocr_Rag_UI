@@ -113,7 +113,17 @@ Use row ranges such as:
 
 Leave the row range empty to process all data rows after the header.
 
-### 8. Document Library
+### 8. Distillation Data Generation (Advanced)
+
+Open **Distillation Data Generation (Advanced)**:
+
+- Choose `SFT Q&A Data` to generate `instruction/input/output` records.
+- Choose `Preference Data chosen/rejected` to generate `prompt/chosen/rejected` records.
+- Set target count, samples per batch, chunks per batch, timeout, retry count, and data scope.
+- Failed batches are logged and can be skipped while the task continues.
+- Export generated records as JSONL for training tools and Excel for manual review.
+
+### 9. Document Library
 
 Open **Document Library**:
 
@@ -122,7 +132,7 @@ Open **Document Library**:
 - Export or import vector-store backups.
 - Clear the Qdrant vector store only after confirming the secondary checkbox.
 
-### 9. Performance Advice
+### 10. Performance Advice
 
 Recommended defaults:
 
@@ -135,7 +145,7 @@ Recommended defaults:
 
 For large files, prefer background ingestion and avoid loading too many huge spreadsheets at once.
 
-### 10. Troubleshooting
+### 11. Troubleshooting
 
 - If the local LLM returns 502, check the model server first.
 - If Qdrant local warns about large collections, switch to Qdrant Docker or HTTP mode.
@@ -255,7 +265,17 @@ PDF, PNG, JPG, JPEG, WEBP, BMP, DOCX, PPTX, XLSX, CSV, TXT, DOC, PPT, XLS
 
 留空表示处理表头下一行到最后一行。
 
-### 8. 文档库管理
+### 8. 蒸馏数据生成（高级）
+
+打开 **蒸馏数据生成（高级）**：
+
+- 选择 `SFT 问答数据` 可生成 `instruction/input/output` 记录。
+- 选择 `偏好数据 chosen/rejected` 可生成 `prompt/chosen/rejected` 记录。
+- 可设置目标数量、每批生成数量、每批 chunk 数量、超时时间、重试次数和资料范围。
+- 单批失败会记录日志，可跳过失败批次并继续后续生成。
+- 生成结果可导出 JSONL 给训练工具使用，也可导出 Excel 进行人工审核。
+
+### 9. 文档库管理
 
 打开 **文档库管理**：
 
@@ -264,7 +284,7 @@ PDF, PNG, JPG, JPEG, WEBP, BMP, DOCX, PPTX, XLSX, CSV, TXT, DOC, PPT, XLS
 - 导出或导入向量库备份。
 - 清空 Qdrant 向量库前需要勾选二次确认。
 
-### 9. 性能建议
+### 10. 性能建议
 
 推荐默认值：
 
@@ -277,7 +297,7 @@ PDF, PNG, JPG, JPEG, WEBP, BMP, DOCX, PPTX, XLSX, CSV, TXT, DOC, PPT, XLS
 
 处理大文件时建议使用后台入库，不要一次性导入过多超大表格。
 
-### 10. 常见问题
+### 11. 常见问题
 
 - 本地大模型返回 502：优先检查模型服务是否正常。
 - Qdrant Local 提示集合过大：建议切换到 Qdrant Docker 或 HTTP 模式。
@@ -397,7 +417,17 @@ PDF, PNG, JPG, JPEG, WEBP, BMP, DOCX, PPTX, XLSX, CSV, TXT, DOC, PPT, XLS
 
 留空表示處理表頭下一列到最後一列。
 
-### 8. 文件庫管理
+### 8. 蒸餾資料生成（進階）
+
+開啟 **蒸餾資料生成（進階）**：
+
+- 選擇 `SFT 問答資料` 可生成 `instruction/input/output` 記錄。
+- 選擇 `偏好資料 chosen/rejected` 可生成 `prompt/chosen/rejected` 記錄。
+- 可設定目標數量、每批生成數量、每批 chunk 數量、逾時時間、重試次數和資料範圍。
+- 單批失敗會記錄日誌，可跳過失敗批次並繼續後續生成。
+- 生成結果可匯出 JSONL 給訓練工具使用，也可匯出 Excel 進行人工審核。
+
+### 9. 文件庫管理
 
 開啟 **文件庫管理**：
 
@@ -406,7 +436,7 @@ PDF, PNG, JPG, JPEG, WEBP, BMP, DOCX, PPTX, XLSX, CSV, TXT, DOC, PPT, XLS
 - 匯出或匯入向量庫備份。
 - 清空 Qdrant 向量庫前需要勾選二次確認。
 
-### 9. 效能建議
+### 10. 效能建議
 
 推薦預設值：
 
@@ -419,7 +449,7 @@ PDF, PNG, JPG, JPEG, WEBP, BMP, DOCX, PPTX, XLSX, CSV, TXT, DOC, PPT, XLS
 
 處理大型文件時建議使用背景入庫，不要一次性匯入過多超大型表格。
 
-### 10. 常見問題
+### 11. 常見問題
 
 - 本地大模型返回 502：優先檢查模型服務是否正常。
 - Qdrant Local 提示集合過大：建議切換到 Qdrant Docker 或 HTTP 模式。

@@ -52,6 +52,11 @@ def load_llm_config_from_env() -> Dict[str, str]:
             or os.getenv("LLM_THINKING_EXTRA_BODY")
             or DEFAULT_LLM_EXTRA_BODY
         ),
+        "request_timeout": str(
+            env_values.get("LLM_REQUEST_TIMEOUT")
+            or os.getenv("LLM_REQUEST_TIMEOUT")
+            or DEFAULT_LLM_REQUEST_TIMEOUT
+        ),
     }
 
 
@@ -73,6 +78,7 @@ def load_llm_config_from_db() -> Optional[Dict[str, str]]:
         "thinking_model": get_config_value("LLM_THINKING_MODEL", model),
         "fast_extra_body": get_config_value("LLM_FAST_EXTRA_BODY", DEFAULT_LLM_EXTRA_BODY),
         "thinking_extra_body": get_config_value("LLM_THINKING_EXTRA_BODY", DEFAULT_LLM_EXTRA_BODY),
+        "request_timeout": get_config_value("LLM_REQUEST_TIMEOUT", str(DEFAULT_LLM_REQUEST_TIMEOUT)),
     }
 
 
@@ -85,6 +91,7 @@ def persist_llm_config(config: Dict[str, str]) -> None:
     set_config_value("LLM_THINKING_MODEL", config["thinking_model"])
     set_config_value("LLM_FAST_EXTRA_BODY", config["fast_extra_body"])
     set_config_value("LLM_THINKING_EXTRA_BODY", config["thinking_extra_body"])
+    set_config_value("LLM_REQUEST_TIMEOUT", str(config.get("request_timeout", DEFAULT_LLM_REQUEST_TIMEOUT)))
 
 
 def get_llm_config() -> Dict[str, str]:
@@ -106,6 +113,7 @@ def save_llm_config(
     thinking_model: str = "",
     fast_extra_body: str = DEFAULT_LLM_EXTRA_BODY,
     thinking_extra_body: str = DEFAULT_LLM_EXTRA_BODY,
+    request_timeout: int = DEFAULT_LLM_REQUEST_TIMEOUT,
 ) -> None:
     api_type = api_type.strip() or DEFAULT_LLM_API_TYPE
     if api_type not in set(LLM_API_TYPE_OPTIONS.values()):
@@ -117,6 +125,7 @@ def save_llm_config(
     thinking_model = thinking_model.strip() or model
     fast_extra_body = fast_extra_body.strip() or DEFAULT_LLM_EXTRA_BODY
     thinking_extra_body = thinking_extra_body.strip() or DEFAULT_LLM_EXTRA_BODY
+    request_timeout = max(1, int(request_timeout or DEFAULT_LLM_REQUEST_TIMEOUT))
 
     parse_extra_body(fast_extra_body)
     parse_extra_body(thinking_extra_body)
@@ -130,6 +139,7 @@ def save_llm_config(
         "thinking_model": thinking_model,
         "fast_extra_body": fast_extra_body,
         "thinking_extra_body": thinking_extra_body,
+        "request_timeout": str(request_timeout),
     }
     persist_llm_config(config)
 
@@ -141,12 +151,23 @@ def save_llm_config(
     os.environ["LLM_THINKING_MODEL"] = thinking_model
     os.environ["LLM_FAST_EXTRA_BODY"] = fast_extra_body
     os.environ["LLM_THINKING_EXTRA_BODY"] = thinking_extra_body
+    os.environ["LLM_REQUEST_TIMEOUT"] = str(request_timeout)
     st.session_state["llm_config"] = config
 
 
-def get_llm_client() -> OpenAI:
+def get_llm_request_timeout(timeout_seconds: Optional[int] = None) -> int:
+    if timeout_seconds is not None:
+        return max(1, int(timeout_seconds or DEFAULT_LLM_REQUEST_TIMEOUT))
     config = get_llm_config()
-    return load_llm_client(config["base_url"], config["api_key"])
+    try:
+        return max(1, int(config.get("request_timeout", DEFAULT_LLM_REQUEST_TIMEOUT)))
+    except Exception:
+        return DEFAULT_LLM_REQUEST_TIMEOUT
+
+
+def get_llm_client(timeout_seconds: Optional[int] = None) -> OpenAI:
+    config = get_llm_config()
+    return load_llm_client(config["base_url"], config["api_key"], get_llm_request_timeout(timeout_seconds))
 
 
 def parse_extra_body(raw_extra_body: str) -> Dict[str, Any]:
@@ -212,6 +233,7 @@ def create_llm_chat_completion_http_fallback(
     messages: List[Dict[str, str]],
     temperature: float,
     extra_body: Dict[str, Any],
+    timeout_seconds: Optional[int] = None,
 ) -> SimpleNamespace:
     config = get_llm_config()
     base_url = config["base_url"].rstrip("/")
@@ -228,7 +250,7 @@ def create_llm_chat_completion_http_fallback(
     request_path = (parsed_url.path.rstrip("/") or "") + "/chat/completions"
     connection_cls = http.client.HTTPSConnection if parsed_url.scheme == "https" else http.client.HTTPConnection
     connection_host = parsed_url.hostname
-    connection = connection_cls(connection_host, parsed_url.port, timeout=60)
+    connection = connection_cls(connection_host, parsed_url.port, timeout=get_llm_request_timeout(timeout_seconds))
     payload = {
         "model": model,
         "messages": messages,
@@ -319,6 +341,7 @@ def create_anthropic_messages_completion(
     messages: List[Dict[str, str]],
     temperature: float,
     extra_body: Dict[str, Any],
+    timeout_seconds: Optional[int] = None,
 ) -> SimpleNamespace:
     config = get_llm_config()
     parsed_url, request_path = normalize_anthropic_base_url(config["base_url"])
@@ -335,7 +358,7 @@ def create_anthropic_messages_completion(
     payload.update(payload_extra)
 
     connection_cls = http.client.HTTPSConnection if parsed_url.scheme == "https" else http.client.HTTPConnection
-    connection = connection_cls(parsed_url.hostname, parsed_url.port, timeout=60)
+    connection = connection_cls(parsed_url.hostname, parsed_url.port, timeout=get_llm_request_timeout(timeout_seconds))
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     headers = {
         "Accept": "application/json",
@@ -393,6 +416,7 @@ def create_openai_compatible_chat_completion(
     messages: List[Dict[str, str]],
     temperature: float,
     extra_body: Dict[str, Any],
+    timeout_seconds: Optional[int] = None,
 ):
     kwargs = {
         "model": model,
@@ -402,7 +426,7 @@ def create_openai_compatible_chat_completion(
     if extra_body:
         kwargs["extra_body"] = extra_body
     try:
-        return get_llm_client().chat.completions.create(**kwargs)
+        return get_llm_client(timeout_seconds).chat.completions.create(**kwargs)
     except Exception as error:
         if is_empty_502_error(error):
             return create_llm_chat_completion_http_fallback(
@@ -410,6 +434,7 @@ def create_openai_compatible_chat_completion(
                 messages=messages,
                 temperature=temperature,
                 extra_body=extra_body,
+                timeout_seconds=timeout_seconds,
             )
         raise
 
@@ -418,22 +443,23 @@ def create_llm_chat_completion(
     messages: List[Dict[str, str]],
     temperature: float,
     mode: str = "fast",
+    timeout_seconds: Optional[int] = None,
 ):
     model, extra_body = get_llm_mode_config(mode)
     api_type = get_llm_config().get("api_type", DEFAULT_LLM_API_TYPE)
     if api_type == "anthropic":
-        return create_anthropic_messages_completion(model, messages, temperature, extra_body)
+        return create_anthropic_messages_completion(model, messages, temperature, extra_body, timeout_seconds=timeout_seconds)
     if api_type == "openai":
-        return create_openai_compatible_chat_completion(model, messages, temperature, extra_body)
+        return create_openai_compatible_chat_completion(model, messages, temperature, extra_body, timeout_seconds=timeout_seconds)
 
     openai_error: Optional[Exception] = None
     try:
-        return create_openai_compatible_chat_completion(model, messages, temperature, extra_body)
+        return create_openai_compatible_chat_completion(model, messages, temperature, extra_body, timeout_seconds=timeout_seconds)
     except Exception as error:
         openai_error = error
 
     try:
-        return create_anthropic_messages_completion(model, messages, temperature, extra_body)
+        return create_anthropic_messages_completion(model, messages, temperature, extra_body, timeout_seconds=timeout_seconds)
     except Exception as anthropic_error:
         raise RuntimeError(
             localized_text(

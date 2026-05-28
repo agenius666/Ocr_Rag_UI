@@ -852,6 +852,18 @@ def render_settings_tab() -> None:
                         "如果後端通過請求參數控制思考模式，可在 extra_body 中配置；不支援時保持 {}。",
                     )
                 )
+                request_timeout = st.number_input(
+                    localized_text("Request Timeout Seconds", "请求超时时间（秒）", "請求逾時時間（秒）"),
+                    min_value=1,
+                    max_value=3600,
+                    value=get_llm_request_timeout(),
+                    step=10,
+                    help=localized_text(
+                        "Maximum waiting time for a single LLM request. Long local generations can use 120-300 seconds.",
+                        "单次大模型请求的最长等待时间。本地模型生成较慢时可设置为 120-300 秒。",
+                        "單次大模型請求的最長等待時間。本地模型生成較慢時可設定為 120-300 秒。",
+                    ),
+                )
 
             extra_col1, extra_col2 = st.columns(2)
             with extra_col1:
@@ -894,6 +906,7 @@ def render_settings_tab() -> None:
                     thinking_model=thinking_model,
                     fast_extra_body=fast_extra_body,
                     thinking_extra_body=thinking_extra_body,
+                    request_timeout=int(request_timeout),
                 )
                 st.success(
                     localized_text(
@@ -916,6 +929,7 @@ def render_settings_tab() -> None:
                     thinking_model=DEFAULT_LLM_MODEL,
                     fast_extra_body=DEFAULT_LLM_EXTRA_BODY,
                     thinking_extra_body=DEFAULT_LLM_EXTRA_BODY,
+                    request_timeout=DEFAULT_LLM_REQUEST_TIMEOUT,
                 )
                 st.success(localized_text("Default settings restored.", "已恢复默认配置。", "已恢復預設配置。"))
                 st.rerun()
@@ -974,6 +988,7 @@ def render_settings_tab() -> None:
                         "thinking_model": active_config.get("thinking_model", active_config["model"]),
                         "fast_extra_body": active_config.get("fast_extra_body", DEFAULT_LLM_EXTRA_BODY),
                         "thinking_extra_body": active_config.get("thinking_extra_body", DEFAULT_LLM_EXTRA_BODY),
+                        "request_timeout": active_config.get("request_timeout", str(DEFAULT_LLM_REQUEST_TIMEOUT)),
                     }
                 )
 

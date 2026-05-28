@@ -188,6 +188,7 @@ DEFAULT_LLM_API_KEY = "EMPTY"
 DEFAULT_LLM_MODEL = "local-model"
 DEFAULT_LLM_EXTRA_BODY = "{}"
 DEFAULT_LLM_API_TYPE = "auto"
+DEFAULT_LLM_REQUEST_TIMEOUT = 120
 LLM_MODE_OPTIONS = {
     "快速": "fast",
     "思考": "thinking",
@@ -1967,6 +1968,7 @@ def reset_app_state_database() -> None:
         thinking_model=DEFAULT_LLM_MODEL,
         fast_extra_body=DEFAULT_LLM_EXTRA_BODY,
         thinking_extra_body=DEFAULT_LLM_EXTRA_BODY,
+        request_timeout=DEFAULT_LLM_REQUEST_TIMEOUT,
     )
     set_config_value("rag_context_turns", DEFAULT_CONTEXT_TURNS)
     set_config_value("compliance_context_turns", DEFAULT_CONTEXT_TURNS)
@@ -2900,8 +2902,8 @@ class LazyQdrantClient:
 
 
 @st.cache_resource
-def load_llm_client(base_url: str, api_key: str):
-    return OpenAI(base_url=base_url, api_key=api_key, timeout=60)
+def load_llm_client(base_url: str, api_key: str, timeout_seconds: int = DEFAULT_LLM_REQUEST_TIMEOUT):
+    return OpenAI(base_url=base_url, api_key=api_key, timeout=max(1, int(timeout_seconds or DEFAULT_LLM_REQUEST_TIMEOUT)))
 
 
 vector_client = LazyQdrantClient()

@@ -7,6 +7,7 @@ from .ui.upload import render_upload_tab
 from .ui.search import render_search_tab
 from .ui.compliance import render_compliance_tab
 from .ui.batch_excel import render_batch_excel_tab
+from .ui.distillation import render_distillation_tab
 from .ui.settings import render_settings_tab
 from .ui.model_status import render_model_status_tab
 from .ui.library import render_library_tab
@@ -38,6 +39,11 @@ def run_app() -> None:
         "search": localized_text("RAG Chat", "检索问答", "檢索問答"),
         "compliance": localized_text("Compliance", "合规分析", "合規分析"),
         "batch": localized_text("Batch Analysis", "批量分析", "批次分析"),
+        "distillation": localized_text(
+            "Distillation Data Generation (Advanced)",
+            "蒸馏数据生成（高级）",
+            "蒸餾資料生成（進階）",
+        ),
         "settings": localized_text("Settings", "配置中心", "配置中心"),
         "models": localized_text("Model Status", "模型状态", "模型狀態"),
         "library": localized_text("Document Library", "文档库管理", "文件庫管理"),
@@ -64,6 +70,8 @@ def run_app() -> None:
         render_compliance_tab()
     elif selected_section == "batch":
         render_batch_excel_tab()
+    elif selected_section == "distillation":
+        render_distillation_tab()
     elif selected_section == "settings":
         render_settings_tab()
     elif selected_section == "models":

@@ -45,6 +45,7 @@ Generate answers through a local LLM endpoint
 - Clause-by-clause comparison between regulations and enterprise evidence.
 - Missing-materials list for compliance analysis.
 - Excel export for compliance reports.
+- Advanced distillation data generation from existing chunks, with SFT `instruction/input/output` and preference `prompt/chosen/rejected` exports to JSONL and Excel.
 - Background ingestion queue with pause, resume, and stop.
 - SHA256 deduplication and same-name changed-file replacement.
 - Configurable model cache paths.
@@ -186,7 +187,8 @@ http://127.0.0.1:8501
 3. Upload files or folders and click `Start Import`.
 4. Use `RAG Chat` to ask questions based on ingested materials.
 5. Use `Compliance` to compare regulatory requirements with enterprise evidence.
-6. Export an Excel report from a compliance answer when needed.
+6. Use `Distillation Data Generation (Advanced)` to generate SFT or preference training data from existing chunks, then export JSONL or Excel for review.
+7. Export an Excel report from a compliance answer when needed.
 
 ### Project Structure
 
@@ -210,6 +212,7 @@ ocr_rag_ui/
 │   ├── services.py         # Shared infrastructure, state, model loading, Qdrant client
 │   ├── document_parsing.py # File upload helpers, Office conversion, OCR, parsers
 │   ├── llm_clients.py      # OpenAI-compatible and Anthropic-compatible LLM adapters
+│   ├── distillation.py     # SFT and preference-data generation helpers
 │   ├── rag_pipeline.py     # Ingestion, retrieval, query rewriting, answer generation
 │   ├── rag_utils.py        # Chunking, keyword search, and table helpers
 │   └── ui/                 # Streamlit page modules and shared UI components
@@ -296,6 +299,7 @@ Model choices and cache paths can be configured in `Settings`. Because the suppo
 - 支持按监管条款逐条对照企业资料。
 - 支持输出资料不足清单。
 - 支持导出合规分析 Excel 报告。
+- 支持基于已有 chunk 生成蒸馏训练数据，可导出 SFT `instruction/input/output` 和偏好 `prompt/chosen/rejected` 的 JSONL / Excel。
 - 支持后台导入队列、暂停、继续、终止。
 - 支持 SHA256 去重和同名变更文件替换旧版本。
 - 支持配置模型缓存路径。
@@ -437,7 +441,8 @@ http://127.0.0.1:8501
 3. 上传文件或文件夹，点击“开始导入文件 / Start Import”。
 4. 在“检索问答 / RAG Chat”中基于已入库资料提问。
 5. 在“合规分析 / Compliance”中让模型结合监管资料和企业资料做差距分析。
-6. 如需报告，可在合规分析回答中导出 Excel。
+6. 在“蒸馏数据生成（高级）/ Distillation Data Generation (Advanced)”中基于已有 chunk 生成 SFT 或偏好训练数据，并导出 JSONL 或 Excel 审核文件。
+7. 如需报告，可在合规分析回答中导出 Excel。
 
 ### 目录说明
 
@@ -461,6 +466,7 @@ ocr_rag_ui/
 │   ├── services.py         # 共享基础设施、状态、模型加载、Qdrant 客户端
 │   ├── document_parsing.py # 文件上传辅助、Office 转换、OCR、解析器
 │   ├── llm_clients.py      # OpenAI 兼容和 Anthropic 兼容大模型适配
+│   ├── distillation.py     # SFT 和偏好数据生成辅助函数
 │   ├── rag_pipeline.py     # 入库、检索、问题改写、回答生成
 │   ├── rag_utils.py        # 文本切分、关键词检索、表格解析等工具函数
 │   └── ui/                 # Streamlit 页面模块和共享 UI 组件
@@ -547,6 +553,7 @@ ocr_rag_ui/
 - 支援按監管條款逐條對照企業資料。
 - 支援輸出資料不足清單。
 - 支援導出合規分析 Excel 報告。
+- 支援基於既有 chunk 生成蒸餾訓練資料，可匯出 SFT `instruction/input/output` 和偏好 `prompt/chosen/rejected` 的 JSONL / Excel。
 - 支援後台導入隊列、暫停、繼續、終止。
 - 支援 SHA256 去重和同名變更文件替換舊版本。
 - 支援配置模型快取路徑。
@@ -688,7 +695,8 @@ http://127.0.0.1:8501
 3. 上傳文件或資料夾，點擊 `Start Import`。
 4. 在 `RAG Chat` 中基於已入庫資料提問。
 5. 在 `Compliance` 中讓模型結合監管資料和企業資料做差距分析。
-6. 如需報告，可在合規分析回答中導出 Excel。
+6. 在 `Distillation Data Generation (Advanced)` 中基於既有 chunk 生成 SFT 或偏好訓練資料，並匯出 JSONL 或 Excel 審核文件。
+7. 如需報告，可在合規分析回答中導出 Excel。
 
 ### 目錄說明
 
@@ -712,6 +720,7 @@ ocr_rag_ui/
 │   ├── services.py         # 共享基礎設施、狀態、模型載入、Qdrant 客戶端
 │   ├── document_parsing.py # 文件上傳輔助、Office 轉換、OCR、解析器
 │   ├── llm_clients.py      # OpenAI 相容和 Anthropic 相容大模型適配
+│   ├── distillation.py     # SFT 和偏好資料生成輔助函數
 │   ├── rag_pipeline.py     # 入庫、檢索、問題改寫、回答生成
 │   ├── rag_utils.py        # 文字切分、關鍵詞檢索、表格解析等工具函數
 │   └── ui/                 # Streamlit 頁面模組和共享 UI 元件
